@@ -114,7 +114,7 @@ resize();
 
 // Canvas Events
 const pointers = new Map();
-let dragPrimaryId = null, pinchStartDist = 0, pinchStartZoom = 1, pinchStartPan = [0, 0], pinchAnchorWorld = [0, 0];
+let dragPrimaryId = null, pinchStartDist = 0, pinchStartZoom = 1, pinchStartPan = [0, 0], pinchAnchorWorld = [0, 0], pinchStartAngle = 0, pinchStartRot = 0;
 export let orbitPivot = null;
 export function setOrbitPivot(val) { orbitPivot = val }
 let orbitDragX = 0;
@@ -185,6 +185,14 @@ canvas.addEventListener("pointerdown", (e) => {
     pinchStartDist = Math.max(1, Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y));
     pinchStartZoom = camera.zoom; pinchStartPan = [camera.panX, camera.panY];
     pinchAnchorWorld = screenToWorld((pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2, canvas.width, canvas.height);
+    // Capture starting angles for rotation
+    pinchStartAngle = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
+    pinchStartRot = camera.rotation;
+    // Anchor the orbit pivot to the pinch center to prevent fighting the drift compensator
+    orbitPivot = null;
+    requestPick(pinchCenterX, pinchCenterY, (sel) => {
+      if (sel.has) orbitPivot = { x: sel.x, y: sel.y };
+    });
   }
 });
 
@@ -362,11 +370,22 @@ canvas.addEventListener("pointermove", (e) => {
     // Note: To prevent jumping, we also sync current zoom during the active pinch
     camera.zoom = camera.targetZoom; 
 
-    const [wx, wy] = screenToWorld((pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2, canvas.width, canvas.height);
-    camera.targetPanX = pinchStartPan[0] + (pinchAnchorWorld[0] - wx);
-    camera.targetPanY = pinchStartPan[1] + (pinchAnchorWorld[1] - wy);
-    camera.panX = camera.targetPanX;
-    camera.panY = camera.targetPanY;
+    // Handle Rotation
+    const currentAngle = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
+    let angleDelta = currentAngle - pinchStartAngle;
+
+    // Normalize delta to handle wrap-around cleanly
+    if (angleDelta > Math.PI) angleDelta -= Math.PI * 2;
+    if (angleDelta < -Math.PI) angleDelta += Math.PI * 2;
+
+    camera.targetRotation = pinchStartRot + angleDelta;
+
+    // Calculate Target Pan EXACTLY based on the Target Zoom, bypassing current lerp states
+    const pinchCenterX = (pts[0].x + pts[1].x) / 2;
+    const pinchCenterY = (pts[0].y + pts[1].y) / 2;
+
+    camera.targetPanX = pinchAnchorWorld[0] - (pinchCenterX - canvas.width * 0.5) / camera.targetZoom;
+    camera.targetPanY = pinchAnchorWorld[1] - (pinchCenterY - canvas.height * 0.5) / camera.targetZoom;
   }
   
   pointers.set(e.pointerId, { x: sx, y: sy });
@@ -494,6 +513,13 @@ function tick(now) {
   camera.targetPanY += driftY;
   camera.panX += driftX;
   camera.panY += driftY;
+
+  // Apply drift to the anchor directly so it stays locked to the rotating pivot point
+  if (pointers.size === 2) {
+    pinchAnchorWorld[0] += driftX;
+    pinchAnchorWorld[1] += driftY;
+  }
+
   if (pointers.size === 0 && activeCommands.size === 0 && Math.abs(driftX) < 1 && Math.abs(driftY) < 1) {
     orbitPivot = null;
   };
