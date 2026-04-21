@@ -11,7 +11,7 @@ import {
   rebuildCubeBuffers,
   loadCustomTexture,
 } from './renderer.js';
-import { updateViewMenuUI } from './menuSystem.js';
+import { updateViewMenuUI, updateActiveToolMenuItem } from './menuSystem.js';
 import { syncWorkerState } from './workerClient.js';
 
 let saveTimeout = null;
@@ -62,6 +62,7 @@ export function uploadMapFile() {
           const success = deserializeMap(event.target.result);
           updatePaletteTexture();
           updateViewMenuUI();
+          updateActiveToolMenuItem();
           uploadElevations();
           rebuildExtrusionBuffers();
           rebuildCubeBuffers();

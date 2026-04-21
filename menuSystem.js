@@ -336,6 +336,14 @@ function updateToolSettingsUI(tool) {
   document.getElementById('cube-settings').classList.toggle('active', ['cube', 'edit-cube'].includes(tool));
 }
 
+export function updateActiveToolMenuItem(tool) {
+  tool = tool || appState.toolMode;
+  document.querySelectorAll('button[data-tool]').forEach(b =>
+    b.classList.toggle('active', b.dataset.tool === tool)
+  );
+  updateToolSettingsUI(tool);
+}
+
 function menuClicks(command, tool) {
   const moveSpeed =100 / camera.zoom;
   const zoomStep = 1.1;
@@ -347,9 +355,7 @@ function menuClicks(command, tool) {
     if ((tool === 'edit-path' || tool === 'extrude') && appState.activeExtrusion) {
         syncExtrusionUI(appState.activeExtrusion);
     }
-    document.querySelectorAll('button[data-tool]').forEach(b =>
-      b.classList.toggle('active', b.dataset.tool === tool)
-    );
+    updateActiveToolMenuItem(tool);
     return;
   }
 
@@ -497,6 +503,7 @@ document.querySelector('#newMapDialog form')?.addEventListener('submit', (e) => 
   rebuildExtrusionBuffers();
   rebuildCubeBuffers();
   updateViewMenuUI();
+  updateActiveToolMenuItem();
   saveMapToLocal();
 
   document.getElementById('newMapDialog').close();
