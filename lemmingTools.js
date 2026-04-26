@@ -28,8 +28,8 @@ export function placeLemmingAt(x, y) {
         stress: 0,
         isThinking: false,
         thinkTimer: 0,
-        grownUp: false,
-        age: 0,
+        grownUp: true,
+        age: 30, // Plopped lemmings are ready to go!
         babyCooldown: 0,
         glistenTimer: 0,
         danceProclivity: Math.random(),
