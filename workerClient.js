@@ -59,7 +59,7 @@ worker.onmessage = (e) => {
     }
   } else if(['true_love', 'rejection', 'birth', 'death', 'party_pooper'].includes(msg.type)) {
     console.info(msg);
-    spawnEventEffect(msg);
+    appState.eventNotifications && spawnEventEffect(msg);
   }
 };
 

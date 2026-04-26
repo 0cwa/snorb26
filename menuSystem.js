@@ -43,6 +43,15 @@ export const activeCommands = new Set();
 export let preOrbitSelection = null;
 // Define which commands should be "held down" for fluid movement
 const continuousCommands = ['pan-up', 'pan-down', 'pan-left', 'pan-right', 'rotate-left', 'rotate-right', 'tilt-up', 'tilt-down', 'zoom-in', 'zoom-out'];
+const appStateTogglers = [
+  ['toggle-grid', 'showGrid'],
+  ['toggle-underground', 'showUnderground'],
+  ['toggle-reproduction', 'enableReproduction'],
+  ['toggle-destress-shocks', 'enableDestressShocks'],
+  ['toggle-dance-smoothing', 'enableDanceSmoothing'],
+  ['toggle-lemming-swimming', 'enableLemmingSwimming'],
+  ['toggle-event-notifications', 'eventNotifications'],
+];
 
 const closeAllMenus = () => {
   document.querySelectorAll('.menubar .menu').forEach(m => m.close());
@@ -359,6 +368,14 @@ function menuClicks(command, tool) {
     return;
   }
 
+  const toggler = appStateTogglers.find(x => x[0] === command);
+  if(toggler) {
+    appState[toggler[1]] = !appState[toggler[1]];
+    updateViewMenuUI();
+    saveMapToLocal();
+    return;
+  }
+
   switch(command) {
     case 'toggle-play':
       appState.isPlaying = !appState.isPlaying;
@@ -406,30 +423,6 @@ function menuClicks(command, tool) {
     case 'rotate-right': camera.targetRotation += Math.PI / 12; break;
     case 'tilt-up': camera.targetTilt = clamp(camera.targetTilt * 1.05, camera.minTilt, camera.maxTilt); break;
     case 'tilt-down': camera.targetTilt = clamp(camera.targetTilt / 1.05, camera.minTilt, camera.maxTilt); break;
-    case 'toggle-grid':
-      appState.showGrid = !appState.showGrid;
-      updateViewMenuUI();
-      break;
-    case 'toggle-underground':
-      appState.showUnderground = !appState.showUnderground;
-      updateViewMenuUI();
-      break;
-    case 'toggle-reproduction':
-      appState.enableReproduction = !appState.enableReproduction;
-      updateViewMenuUI();
-      break;
-    case 'toggle-destress-shocks':
-      appState.enableDestressShocks = !appState.enableDestressShocks;
-      updateViewMenuUI();
-      break;
-    case 'toggle-dance-smoothing':
-      appState.enableDanceSmoothing = !appState.enableDanceSmoothing;
-      updateViewMenuUI();
-      break;
-    case 'toggle-lemming-swimming':
-      appState.enableLemmingSwimming = !appState.enableLemmingSwimming;
-      updateViewMenuUI();
-      break;
     default:
       console.error('invalid menu item', command);
   }
@@ -537,30 +530,13 @@ document.querySelector('#findLemmingDialog form')?.addEventListener('submit', (e
 });
 
 export function updateViewMenuUI() {
-  const gridBtn = document.querySelector('button[data-command="toggle-grid"]');
-  if (gridBtn) {
-    gridBtn.classList.toggle('active', appState.showGrid);
-  }
-  const ugBtn = document.querySelector('button[data-command="toggle-underground"]');
-  if (ugBtn) {
-    ugBtn.classList.toggle('active', appState.showUnderground);
-  }
-  const reproBtn = document.querySelector('button[data-command="toggle-reproduction"]');
-  if (reproBtn) {
-    reproBtn.classList.toggle('active', appState.enableReproduction);
-  }
-  const destressBtn = document.querySelector('button[data-command="toggle-destress-shocks"]');
-  if (destressBtn) {
-    destressBtn.classList.toggle('active', appState.enableDestressShocks);
-  }
-  const danceSmoothBtn = document.querySelector('button[data-command="toggle-dance-smoothing"]');
-  if (danceSmoothBtn) {
-    danceSmoothBtn.classList.toggle('active', appState.enableDanceSmoothing);
-  }
-  const swimBtn = document.querySelector('button[data-command="toggle-lemming-swimming"]');
-  if (swimBtn) {
-    swimBtn.classList.toggle('active', appState.enableLemmingSwimming);
-  }
+  appStateTogglers.forEach(toggler => {
+    const btn = document.querySelector(`button[data-command="${toggler[0]}"]`);
+    if (btn) {
+      btn.classList.toggle('active', appState[toggler[1]]);
+    }
+  });
+
   const playBtn = document.querySelector('button[data-command="toggle-play"]');
   if (playBtn) playBtn.textContent = appState.isPlaying ? 'Pause' : 'Play';
 
