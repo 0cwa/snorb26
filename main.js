@@ -538,3 +538,49 @@ window.addEventListener('focus', () => {
   document.body.classList.remove('window-inactive');
 });
 
+// --- Memphis/Win98 Dialog Dragging Logic ---
+let draggedDialog = null;
+let dragOffsetX = 0;
+let dragOffsetY = 0;
+
+window.addEventListener('pointerdown', (e) => {
+  // Check if the user clicked on a dialog's title bar
+  const h2 = e.target.closest('dialog h2');
+
+  if (h2) {
+    draggedDialog = h2.closest('dialog');
+    const rect = draggedDialog.getBoundingClientRect();
+
+    // Calculate the offset between the pointer and the top-left of the dialog
+    dragOffsetX = e.clientX - rect.left;
+    dragOffsetY = e.clientY - rect.top;
+
+    // Clear CSS centering overrides so absolute positioning works properly
+    draggedDialog.style.margin = '0';
+    draggedDialog.style.transform = 'none';
+
+    // Lock it to its current screen position before moving
+    draggedDialog.style.left = `${rect.left}px`;
+    draggedDialog.style.top = `${rect.top}px`;
+
+    // Capture the pointer so dragging works even if the mouse moves fast
+    h2.setPointerCapture(e.pointerId);
+  }
+});
+
+window.addEventListener('pointermove', (e) => {
+  if (draggedDialog) {
+    draggedDialog.style.left = `${e.clientX - dragOffsetX}px`;
+    draggedDialog.style.top = `${e.clientY - dragOffsetY}px`;
+  }
+});
+
+window.addEventListener('pointerup', (e) => {
+  if (draggedDialog) {
+    const h2 = e.target.closest('dialog h2');
+    if (h2 && h2.hasPointerCapture(e.pointerId)) {
+      h2.releasePointerCapture(e.pointerId);
+    }
+    draggedDialog = null;
+  }
+});
