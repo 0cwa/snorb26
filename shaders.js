@@ -432,15 +432,20 @@ void main() {
     // Multiply by 0.5 because clip-space Z maps to half-scale in window-space depth
     gl_FragDepth = gl_FragCoord.z + zOffset * 0.5;
 
-    // Face left or right based on projected angle
+    // Face left or right based on projected angle (for walking)
     float facing = sign(cos(v_angle));
     if (facing == 0.0) facing = 1.0;
-    uv.x *= facing;
-    
-    // If swimming, lay horizontally and pop up slightly
-    vec2 uvSwim = vec2(uv.y, -uv.x);
-    uvSwim.y += 0.2; 
-    uv = mix(uv, uvSwim, v_inWater);
+    vec2 walkUv = vec2(uv.x * facing, uv.y);
+
+    // If swimming, lay horizontally and dynamically rotate to face the swimming angle
+    float cA = cos(v_angle);
+    float sA = sin(v_angle);
+    vec2 flatUv = vec2(uv.y, -uv.x);
+    vec2 uvSwim = vec2(flatUv.x * cA - flatUv.y * sA, flatUv.x * sA + flatUv.y * cA);
+    uvSwim.y += 0.2;
+
+    // Snap the UV layout exactly halfway to prevent SDF shearing/melting
+    uv = mix(walkUv, uvSwim, step(0.5, v_inWater));
 
     // Walk cycle animation (offset by angle so they don't all march perfectly in sync)
     float walk = u_time * 15.0 + v_angle * 10.0;
