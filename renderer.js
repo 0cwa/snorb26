@@ -127,7 +127,7 @@ export function initWebGL(canvasEl) {
   SU = getUniforms(skyProgram, ["u_tilt", "u_rotation", "u_pan"]);
   EU = getUniforms(extrudeProgram, ["u_viewSize", "u_pan", "u_zoom", "u_tileW", "u_tileH", "u_elevStep", "u_gridW", "u_gridH", "u_rotation", "u_elevTex"]);
   EDU = getUniforms(editorProgram, ["u_viewSize", "u_pan", "u_zoom", "u_tileW", "u_tileH", "u_elevStep", "u_gridW", "u_gridH", "u_rotation", "u_elevTex"]);
-  LU = getUniforms(lemmingProgram, ["u_viewSize", "u_pan", "u_zoom", "u_tileW", "u_tileH", "u_elevStep", "u_gridW", "u_gridH", "u_rotation", "u_elevTex", "u_time"]);
+  LU = getUniforms(lemmingProgram, ["u_viewSize", "u_pan", "u_zoom", "u_tileW", "u_tileH", "u_elevStep", "u_gridW", "u_gridH", "u_rotation", "u_elevTex", "u_time", "u_waterLevel"]);
 
   setupGeometry();
   setupTextures();
@@ -759,6 +759,7 @@ export function draw(now) {
     gl.uniform1f(LU.elevStep, ELEV_STEP * parallaxScalar); gl.uniform1i(LU.gridW, GRID_W); gl.uniform1i(LU.gridH, GRID_H);
 
     gl.uniform1f(LU.time, (now || 0) * 0.001);
+    gl.uniform1f(LU.waterLevel, mapSettings.waterLevel);
 
     gl.drawArrays(gl.POINTS, 0, lemmings.length);
   }

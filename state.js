@@ -77,6 +77,7 @@ const defaultAppState = {
   enableReproduction: true,
   enableDestressShocks: true,
   enableDanceSmoothing: true,
+  enableLemmingSwimming: true,
   isPlaying: true,
   gameSpeed: 1.0,
   gameTime: 0,
@@ -207,6 +208,7 @@ export function serializeMap() {
     ['enableReproduction', appState.enableReproduction],
     ['enableDestressShocks', appState.enableDestressShocks],
     ['enableDanceSmoothing', appState.enableDanceSmoothing],
+    ['enableLemmingSwimming', appState.enableLemmingSwimming],
     ['loveChance', appState.loveChance],
     ['ageGapPenalty', appState.ageGapPenalty],
     ['babyChance', appState.babyChance],
@@ -594,6 +596,7 @@ export function deserializeMap(text) {
     appState.enableReproduction = data.map.enableReproduction === 'true';
     appState.enableDestressShocks = data.map.enableDestressShocks === 'true';
     appState.enableDanceSmoothing = data.map.enableDanceSmoothing === 'true';
+    appState.enableLemmingSwimming = data.map.enableLemmingSwimming !== 'false';
 
     if (data.map.isPlaying !== undefined) appState.isPlaying = data.map.isPlaying !== 'false';
     if (data.map.gameSpeed !== undefined) appState.gameSpeed = parseFloat(data.map.gameSpeed) || 1.0;

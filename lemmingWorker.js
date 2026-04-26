@@ -13,6 +13,7 @@ let simParams = {
   maxAdditions: 50,
   enableDestressShocks: true,
   enableDanceSmoothing: true,
+  enableLemmingSwimming: true,
 };
 let currentSyncId = 0;
 let shockwaves = []; // Keep track of active healing shockwaves
@@ -441,7 +442,20 @@ function updateLemmings(dt) {
             }
         }
 
-        if (hitObstacle || Math.abs(currentH - nextH) > 5 || nextH <= mapSettings.waterLevel) {
+        const effectiveCurrentH = Math.max(currentH, mapSettings.waterLevel);
+        const effectiveNextH = Math.max(nextH, mapSettings.waterLevel);
+
+        let afraidOfWater = false;
+        // If stepping from land into water, they will *sometimes* jump in (10% chance)
+        if (currentH > mapSettings.waterLevel && nextH <= mapSettings.waterLevel) {
+            if (!simParams.enableLemmingSwimming) {
+                afraidOfWater = true; // 100% afraid if swimming is disabled
+            } else if (Math.random() < 0.90) {
+                afraidOfWater = true; // 90% afraid even if they can swim
+            }
+        }
+
+        if (hitObstacle || Math.abs(effectiveCurrentH - effectiveNextH) > 5 || afraidOfWater) {
             if (hitCube) {
                 if (!hitCube.additions) hitCube.additions = [];
                 const cooldownDuration = 3.0; // 3 seconds of in-game time

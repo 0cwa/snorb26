@@ -344,6 +344,8 @@ uniform vec2 u_viewSize; uniform vec2 u_pan; uniform float u_zoom;
 uniform float u_tileW; uniform float u_tileH; uniform float u_elevStep;
 uniform int u_gridW; uniform int u_gridH; uniform float u_rotation;
 uniform highp usampler2D u_elevTex;
+uniform float u_waterLevel;
+out float v_inWater;
 
 out vec3 v_color;
 out float v_angle;
@@ -364,7 +366,11 @@ float getInterpolatedHeight(vec2 pos) {
 }
 
 void main() {
-    float hV = getInterpolatedHeight(a_pos);
+    float actualH = getInterpolatedHeight(a_pos);
+    // Clamp the lemming height to the water surface
+    float hV = max(actualH, u_waterLevel);
+    // Smoothly transition into the water over a short height distance
+    v_inWater = 1.0 - smoothstep(u_waterLevel - 0.5, u_waterLevel + 1.5, actualH);
     vec2 p = a_pos - vec2(float(u_gridW)*0.5, float(u_gridH)*0.5);
     float c = cos(u_rotation); float s = sin(u_rotation);
     vec2 r = vec2(p.x * c - p.y * s, p.x * s + p.y * c);
@@ -374,7 +380,7 @@ void main() {
 
     // Make the point larger so we have enough canvas to draw a procedural person
     float pSize = max(16.0, 48.0 * u_zoom) * a_size;
-    gl_PointSize = pSize;
+    gl_PointSize = pSize * 1.25; // Expand bounding box to prevent clipping
     v_pointSizeWorld = pSize / u_zoom;
 
     world.y -= hV * u_elevStep;
@@ -402,6 +408,7 @@ in float v_dance;
 in float v_glisten;
 in float v_age;
 in float v_pointSizeWorld;
+in float v_inWater;
 uniform float u_time;
 uniform float u_elevStep;
 out vec4 fragColor;
@@ -414,12 +421,12 @@ float sdSegment(vec2 p, vec2 a, vec2 b) {
 }
 
 void main() {
-    // Remap gl_PointCoord to [-1, 1], flip Y so positive is up
-    vec2 uv = gl_PointCoord * 2.0 - 1.0;
+    // Remap gl_PointCoord to expanded bounds [-1.25, 1.25], flip Y so positive is up
+    vec2 uv = (gl_PointCoord * 2.0 - 1.0) * 1.25;
     uv.y = -uv.y;
 
     // Pivot the depth exactly at the feet (uv.y = -0.6) so they perfectly match the terrain depth
-    float yWorldOffset = -(uv.y + 0.6) * (v_pointSizeWorld * 0.5);
+    float yWorldOffset = mix(-(uv.y + 0.6) * (v_pointSizeWorld * 0.5), 0.0, v_inWater);
     float zOffset = (yWorldOffset / u_elevStep) * 0.0006;
     
     // Multiply by 0.5 because clip-space Z maps to half-scale in window-space depth
@@ -429,26 +436,33 @@ void main() {
     float facing = sign(cos(v_angle));
     if (facing == 0.0) facing = 1.0;
     uv.x *= facing;
+    
+    // If swimming, lay horizontally and pop up slightly
+    vec2 uvSwim = vec2(uv.y, -uv.x);
+    uvSwim.y += 0.2; 
+    uv = mix(uv, uvSwim, v_inWater);
 
     // Walk cycle animation (offset by angle so they don't all march perfectly in sync)
     float walk = u_time * 15.0 + v_angle * 10.0;
     // Time calculations for regular walk vs dance
     float danceTime = u_time * 24.0 + v_angle * 5.0;
+    float swimTime = u_time * 20.0 + v_angle * 10.0;
 
     // Bob up and down (jump higher when dancing)
     float walkBob = abs(sin(walk)) * 0.08;
     float danceBob = abs(sin(danceTime)) * 0.15 + 0.05;
-    uv.y -= mix(walkBob, danceBob, v_dance);
+    float swimBob = sin(swimTime * 0.5) * 0.05;
+    uv.y -= mix(mix(walkBob, danceBob, v_dance), swimBob, v_inWater);
 
     float d = 1.0;
     float r = 0.12; // Limb thickness
 
     // --- Hip Sway Logic ---
-    float hipSway = sin(danceTime * 0.5) * 0.2 * v_dance;
+    float hipSway = mix(sin(danceTime * 0.5) * 0.2 * v_dance, 0.0, v_inWater);
     vec2 hipPos = vec2(hipSway, -0.2);
 
     // Calculate how badly their back hurts (starts slumping after 60)
-    float slump = clamp((v_age - 60.0) * 0.005, 0.0, 0.25);
+    float slump = mix(clamp((v_age - 60.0) * 0.005, 0.0, 0.25), 0.0, v_inWater);
 
     // 1. Head (Offset forward by slump)
     vec2 headPos = vec2(hipSway * 0.3 + (slump * 1.5), 0.5 - slump);
@@ -459,30 +473,37 @@ void main() {
     d = min(d, sdSegment(uv, shoulderPos, hipPos) - r);
 
     // 3. Legs (Anchored to the moving hips instead of 0.0)
-    vec2 leftFoot = mix(
+    vec2 leftFootWalk = mix(
         vec2(sin(walk)*0.3, -0.6 + cos(walk)*0.1),
-        vec2(-0.2 - sin(danceTime)*0.1, -0.6 + cos(danceTime)*0.2), // Tapping out
+        vec2(-0.2 - sin(danceTime)*0.1, -0.6 + cos(danceTime)*0.2),
         v_dance
     );
-    vec2 rightFoot = mix(
+    vec2 rightFootWalk = mix(
         vec2(-sin(walk)*0.3, -0.6 - cos(walk)*0.1),
-        vec2(0.2 + sin(danceTime)*0.1, -0.6 + sin(danceTime)*0.2), // Tapping out
+        vec2(0.2 + sin(danceTime)*0.1, -0.6 + sin(danceTime)*0.2),
         v_dance
     );
+    vec2 leftFoot = mix(leftFootWalk, vec2(sin(swimTime)*0.2, -0.8 + cos(swimTime)*0.1), v_inWater);
+    vec2 rightFoot = mix(rightFootWalk, vec2(-sin(swimTime)*0.2, -0.8 - cos(swimTime)*0.1), v_inWater);
+    
     d = min(d, sdSegment(uv, hipPos, leftFoot) - r);
     d = min(d, sdSegment(uv, hipPos, rightFoot) - r);
 
     // 4. Arms (Waving side to side with the groove)
-    vec2 leftHand = mix(
+    vec2 leftHandWalk = mix(
         vec2(-cos(walk)*0.3, 0.0 - sin(walk)*0.1),
         vec2(-0.4 + hipSway, 0.1 + sin(danceTime)*0.2),
         v_dance
     );
-    vec2 rightHand = mix(
+    vec2 rightHandWalk = mix(
         vec2(cos(walk)*0.3, 0.0 + sin(walk)*0.1),
         vec2(0.4 + hipSway, 0.1 + cos(danceTime)*0.2),
         v_dance
     );
+    vec2 leftHand = mix(leftHandWalk, vec2(cos(swimTime)*0.4, 0.2 + sin(swimTime)*0.3), v_inWater);
+    vec2 rightHand = mix(rightHandWalk, vec2(-cos(swimTime)*0.4, 0.2 - sin(swimTime)*0.3), v_inWater);
+
+
     vec2 armPivot = vec2(0.0, 0.2); // Pivot just below the shoulders
     d = min(d, sdSegment(uv, armPivot, leftHand) - 0.08);
     d = min(d, sdSegment(uv, armPivot, rightHand) - 0.08);

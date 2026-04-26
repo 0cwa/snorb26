@@ -426,6 +426,10 @@ function menuClicks(command, tool) {
       appState.enableDanceSmoothing = !appState.enableDanceSmoothing;
       updateViewMenuUI();
       break;
+    case 'toggle-lemming-swimming':
+      appState.enableLemmingSwimming = !appState.enableLemmingSwimming;
+      updateViewMenuUI();
+      break;
     default:
       console.error('invalid menu item', command);
   }
@@ -552,6 +556,10 @@ export function updateViewMenuUI() {
   const danceSmoothBtn = document.querySelector('button[data-command="toggle-dance-smoothing"]');
   if (danceSmoothBtn) {
     danceSmoothBtn.classList.toggle('active', appState.enableDanceSmoothing);
+  }
+  const swimBtn = document.querySelector('button[data-command="toggle-lemming-swimming"]');
+  if (swimBtn) {
+    swimBtn.classList.toggle('active', appState.enableLemmingSwimming);
   }
   const playBtn = document.querySelector('button[data-command="toggle-play"]');
   if (playBtn) playBtn.textContent = appState.isPlaying ? 'Pause' : 'Play';
