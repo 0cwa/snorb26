@@ -492,6 +492,13 @@ function tick(now) {
     if (Math.abs(velocityX) < 0.01) velocityX = 0;
     if (Math.abs(velocityY) < 0.01) velocityY = 0;
   }
+  // --- CAMERA SHAKE ---
+  if (appState.cameraShakeTimer > 0) {
+    appState.cameraShakeTimer -= dtReal / 1000;
+    const intensity = Math.min(1, appState.cameraShakeTimer) * 20.0;
+    camera.targetPanX += (Math.random() - 0.5) * intensity;
+    camera.targetPanY += (Math.random() - 0.5) * intensity;
+  }
 
   // Interpolation logic
   camera.panX += (camera.targetPanX - camera.panX) * l;

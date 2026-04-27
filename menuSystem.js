@@ -426,6 +426,7 @@ function menuClicks(command, tool) {
     case 'tilt-up': camera.targetTilt = clamp(camera.targetTilt * 1.05, camera.minTilt, camera.maxTilt); break;
     case 'tilt-down': camera.targetTilt = clamp(camera.targetTilt / 1.05, camera.minTilt, camera.maxTilt); break;
     case 'trigger-volcano':
+      appState.cameraShakeTimer = 15.0; // Rumble during eruption
       // Pick a random location away from the edges
       const vx = 10 + Math.floor(Math.random() * (GRID_W - 20));
       const vy = 10 + Math.floor(Math.random() * (GRID_H - 20));
@@ -443,6 +444,27 @@ function menuClicks(command, tool) {
         a: 0, s: 0, c: [0, 0, 0],
         grownUp: true,
         isVolcanoSeed: true
+      });
+      syncWorkerState();
+      break;
+    case 'trigger-earthquake':
+      const eqX = 10 + Math.floor(Math.random() * (GRID_W - 20));
+      const eqY = 10 + Math.floor(Math.random() * (GRID_H - 20));
+
+      const [ewx, ewy] = tileCenterWorld(eqX, eqY);
+      camera.targetPanX = ewx;
+      camera.targetPanY = ewy;
+      camera.targetZoom = 1.0;
+      appState.cameraShakeTimer = 2.0; // Short, violent shake
+
+      lemmings.push({
+        id: Math.random().toString(36).substr(2, 9),
+        x: eqX,
+        y: eqY,
+        a: Math.random() * Math.PI * 2, // Start direction for the canyon tear
+        s: 0, c: [0, 0, 0],
+        grownUp: true,
+        isEarthquakeSeed: true
       });
       syncWorkerState();
       break;

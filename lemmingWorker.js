@@ -1,6 +1,7 @@
 let GRID_W = 256, GRID_H = 256;
 let elevations, buildingAt, mapSettings = { waterLevel: 86 };
 let volcanoes = [];
+let earthquakes = [];
 let extrusions = [], cubes = [], lemmings = [];
 let enableReproduction = true;
 let simParams = {
@@ -53,8 +54,8 @@ self.onmessage = function(e) {
         enableReproduction = e.data.enableReproduction;
         if (e.data.simParams) simParams = e.data.simParams;
     } else if (e.data.type === 'tick') {
-        // Keep ticking if we have lemmings, active shockwaves, OR active volcanoes
-        if ((!lemmings || lemmings.length === 0) && shockwaves.length === 0 && volcanoes.length === 0) {
+        // Keep ticking if we have lemmings, active shockwaves, active volcanoes, OR active earthquakes
+        if ((!lemmings || lemmings.length === 0) && shockwaves.length === 0 && volcanoes.length === 0 && earthquakes.length === 0) {
             self.postMessage({ type: 'tick_result', syncId: currentSyncId, lemmings: [] });
             return;
         }
@@ -79,6 +80,48 @@ function updateLemmings(dt) {
             x: vx, y: vy, phase: 'rising', timer: 0, height: 0,
             baseH: elevations[vy * GRID_W + vx]
         });
+    }
+
+    // Process Active Earthquakes
+    for (let i = earthquakes.length - 1; i >= 0; i--) {
+        let eq = earthquakes[i];
+        let speed = 60.0; // Very fast canyon growth
+        let steps = Math.max(1, Math.floor(speed * dt));
+        let stepDist = (speed * dt) / steps;
+
+        for (let s = 0; s < steps; s++) {
+            if (eq.len > eq.maxLen) {
+                earthquakes.splice(i, 1);
+                break;
+            }
+            eq.len += stepDist;
+            eq.currentA += (Math.random() - 0.5) * 1.5; // Highly jagged path
+            eq.x += Math.cos(eq.currentA) * stepDist;
+            eq.y += Math.sin(eq.currentA) * stepDist;
+
+            let cx = Math.floor(eq.x), cy = Math.floor(eq.y);
+            let width = 1.5 + Math.random() * 2.0;
+
+            for (let oy = -Math.ceil(width); oy <= Math.ceil(width); oy++) {
+                for (let ox = -Math.ceil(width); ox <= Math.ceil(width); ox++) {
+                    if (Math.hypot(ox, oy) <= width) {
+                        let tx = cx + ox, ty = cy + oy;
+                        if (tx >= 0 && tx < GRID_W && ty >= 0 && ty < GRID_H) {
+                            let idx = ty * GRID_W + tx;
+                            elevations[idx] = Math.max(0, elevations[idx] - 50); // Drop the floor deep
+                            terrainChanged = true;
+                        }
+                    }
+                }
+            }
+
+            // Swallow lemmings whole before they can run!
+            for (let lem of lemmings) {
+                if (!lem.dead && Math.hypot(lem.x - eq.x, lem.y - eq.y) <= width) {
+                    lem.dead = true;
+                }
+            }
+        }
     }
 
     // 2. Process Active Volcanoes
@@ -218,6 +261,16 @@ function updateLemmings(dt) {
     const glisteningNewborns = lemmings.filter(l => (l.glistenTimer || 0) > 0);
 
     for (let lem of lemmings) {
+
+        if (lem.isEarthquakeSeed) {
+            lem.dead = true;
+            earthquakes.push({
+                x: lem.x, y: lem.y,
+                len: 0, maxLen: 30 + Math.random() * 40,
+                currentA: lem.a
+            });
+            continue;
+        }
 
         // --- LAVA LOGIC ---
         if (lem.isVolcanoSeed) {

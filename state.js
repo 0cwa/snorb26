@@ -90,6 +90,7 @@ const defaultAppState = {
   deathAge: 60.0,
   deathChance: 0.0001,
   maxAdditions: 50,
+  cameraShakeTimer: 0,
 }
 export const appState = Object.assign({}, defaultAppState);
 
