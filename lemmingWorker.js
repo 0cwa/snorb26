@@ -1,8 +1,10 @@
 let GRID_W = 256, GRID_H = 256;
 let elevations, buildingAt, mapSettings = { waterLevel: 86 };
+let volcanoes = [];
 let extrusions = [], cubes = [], lemmings = [];
 let enableReproduction = true;
 let simParams = {
+  volcanoChance: 0.0005,
   loveChance: 0.3,
   ageGapPenalty: 0.01,
   babyChance: 0.2,
@@ -51,7 +53,8 @@ self.onmessage = function(e) {
         enableReproduction = e.data.enableReproduction;
         if (e.data.simParams) simParams = e.data.simParams;
     } else if (e.data.type === 'tick') {
-        if (!lemmings || lemmings.length === 0) {
+        // Keep ticking if we have lemmings, active shockwaves, OR active volcanoes
+        if ((!lemmings || lemmings.length === 0) && shockwaves.length === 0 && volcanoes.length === 0) {
             self.postMessage({ type: 'tick_result', syncId: currentSyncId, lemmings: [] });
             return;
         }
@@ -67,6 +70,82 @@ function updateLemmings(dt) {
     // Build a quick dictionary so lemmings can find their partners efficiently
     const lemmingsById = new Map();
     for (let l of lemmings) lemmingsById.set(l.id, l);
+
+    // 1. Random Volcanic Activity
+    if (Math.random() < simParams.volcanoChance * dt) {
+        let vx = 10 + Math.floor(Math.random() * (GRID_W - 20));
+        let vy = 10 + Math.floor(Math.random() * (GRID_H - 20));
+        volcanoes.push({
+            x: vx, y: vy, phase: 'rising', timer: 0, height: 0,
+            baseH: elevations[vy * GRID_W + vx]
+        });
+    }
+
+    // 2. Process Active Volcanoes
+    for (let i = volcanoes.length - 1; i >= 0; i--) {
+        let v = volcanoes[i];
+        v.timer += dt;
+        let cx = Math.floor(v.x), cy = Math.floor(v.y);
+
+        if (v.phase === 'rising') {
+            if (v.timer > 0.3) { // Grow the cone rapidly
+                v.timer = 0;
+                v.height += 2.5;
+                let maxR = Math.min(10, v.height / 2.5);
+
+                for (let oy = -Math.ceil(maxR); oy <= Math.ceil(maxR); oy++) {
+                    for (let ox = -Math.ceil(maxR); ox <= Math.ceil(maxR); ox++) {
+                        let dist = Math.hypot(ox, oy);
+                        if (dist <= maxR) {
+                            let tx = cx + ox, ty = cy + oy;
+                            if (tx >= 0 && tx < GRID_W && ty >= 0 && ty < GRID_H) {
+                                // Calculate desired cone slope height
+                                let targetH = v.baseH + (maxR - dist) * 4;
+                                let idx = ty * GRID_W + tx;
+                                if (elevations[idx] < targetH) {
+                                    elevations[idx] = Math.min(255, elevations[idx] + 2);
+                                    terrainChanged = true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (v.height > 69) { // Time to erupt TODO: put volcano height as parameter?
+                    v.phase = 'erupting';
+                    v.timer = 0;
+                    // Hollow out the caldera crater
+                    for (let oy = -2; oy <= 2; oy++) {
+                        for (let ox = -2; ox <= 2; ox++) {
+                            if (Math.hypot(ox, oy) <= 2) {
+                                let tx = cx + ox, ty = cy + oy;
+                                if (tx >= 0 && tx < GRID_W && ty >= 0 && ty < GRID_H) {
+                                    elevations[ty * GRID_W + tx] = Math.max(0, elevations[ty * GRID_W + tx] - 6);
+                                    terrainChanged = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (v.phase === 'erupting') {
+            if (v.timer < 12.0) {
+                // Spew Lava Particles
+                if (Math.random() < 25.0 * dt) {
+                    lemmings.push({
+                        id: Math.random().toString(36).substr(2, 9),
+                        x: cx + (Math.random() - 0.5) * 2, y: cy + (Math.random() - 0.5) * 2,
+                        a: Math.random() * Math.PI * 2,
+                        s: 3.0 + Math.random() * 5.0,
+                        c: [1.0, 0.15, 0.0], // Molten Red
+                        isLava: true, age: 0, grownUp: true, glistenTimer: 100.0, stress: 0
+                    });
+                }
+            } else {
+                volcanoes.splice(i, 1);
+            }
+        }
+    }
 
     // Process Healing Shockwaves
     for (let i = shockwaves.length - 1; i >= 0; i--) {
@@ -139,6 +218,90 @@ function updateLemmings(dt) {
     const glisteningNewborns = lemmings.filter(l => (l.glistenTimer || 0) > 0);
 
     for (let lem of lemmings) {
+
+        // --- LAVA LOGIC ---
+        if (lem.isVolcanoSeed) {
+            lem.dead = true;
+            let cX = Math.floor(lem.x), cY = Math.floor(lem.y);
+            volcanoes.push({
+                x: lem.x, y: lem.y, phase: 'rising', timer: 0, height: 0,
+                baseH: elevations[cY * GRID_W + cX] || 0
+            });
+            continue;
+        }
+
+        if (lem.isLava) {
+            lem.age += dt;
+            if (lem.age > 3.0 + Math.random() * 2.5) {
+                lem.dead = true; // Lava cools down and congeals into terrain
+                const cX = Math.floor(lem.x), cY = Math.floor(lem.y);
+                if (cX >= 0 && cX < GRID_W && cY >= 0 && cY < GRID_H) {
+                    elevations[cY * GRID_W + cX] = Math.min(255, elevations[cY * GRID_W + cX] + 1);
+                    terrainChanged = true;
+                }
+                continue;
+            }
+
+            // Flow downhill
+            const cX = Math.floor(lem.x), cY = Math.floor(lem.y);
+            let lowestH = elevations[cY * GRID_W + cX] || 255;
+            let targetA = lem.a;
+
+            if (cX >= 1 && cX < GRID_W - 1 && cY >= 1 && cY < GRID_H - 1) {
+                const neighbors = [
+                    {dx: 1, dy: 0, a: 0}, {dx: 1, dy: 1, a: Math.PI/4},
+                    {dx: 0, dy: 1, a: Math.PI/2}, {dx: -1, dy: 1, a: Math.PI*3/4},
+                    {dx: -1, dy: 0, a: Math.PI}, {dx: -1, dy: -1, a: -Math.PI*3/4},
+                    {dx: 0, dy: -1, a: -Math.PI/2}, {dx: 1, dy: -1, a: -Math.PI/4}
+                ];
+                for (let n of neighbors) {
+                    let h = elevations[(cY + n.dy) * GRID_W + (cX + n.dx)];
+                    if (h < lowestH) { lowestH = h; targetA = n.a; }
+                }
+                if (elevations[cY * GRID_W + cX] > lowestH) {
+                    // Smoothly turn towards the downhill slope
+                    let diff = targetA - lem.a;
+                    while (diff < -Math.PI) diff += Math.PI * 2;
+                    while (diff > Math.PI) diff -= Math.PI * 2;
+                    lem.a += diff * 0.2;
+                }
+            }
+
+            let nx = lem.x + Math.cos(lem.a) * lem.s * dt;
+            let ny = lem.y + Math.sin(lem.a) * lem.s * dt;
+            if (nx >= 0 && nx < GRID_W - 1 && ny >= 0 && ny < GRID_H - 1) {
+                lem.x = nx; lem.y = ny;
+            } else {
+                lem.a += Math.PI;
+            }
+            continue; // Skip all normal lemming behavior
+        }
+        // --- END LAVA LOGIC ---
+
+        // --- PANIC LOGIC ---
+        let panicVolcano = null;
+        let panicDistSq = Infinity;
+        for (let v of volcanoes) {
+            let dSq = (lem.x - v.x)**2 + (lem.y - v.y)**2;
+            if (dSq < 625.0 && dSq < panicDistSq) { // 25 tile radius (25^2)
+                panicDistSq = dSq;
+                panicVolcano = v;
+            }
+        }
+
+        if (panicVolcano) {
+            lem.stress = 100.0; // Max stress!
+            lem.isDancing = false;
+            lem.isThinking = false;
+            lem.isDigging = false;
+            lem.isRaising = false;
+            lem.thinkTimer = 0;
+            // Run exactly away from the volcano!
+            lem.a = Math.atan2(lem.y - panicVolcano.y, lem.x - panicVolcano.x);
+            lem.s = 6.0 + Math.random() * 2.0; // Sprint speed! (Normal is 1.5 - 4.0)
+        }
+        // --- END PANIC LOGIC ---
+
         lem.stress = Math.max(0, (lem.stress || 0) - dt * 0.2); // Naturally calm down over time
 
         if (lem.isThinking) {

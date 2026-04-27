@@ -17,6 +17,7 @@ import {
   extrusions,
   lemmings,
   customBuildingRegistry,
+  tileCenterWorld,
 } from './state.js';
 import {
   canvas,
@@ -30,6 +31,7 @@ import {
   rebuildCubeBuffers,
   loadCustomTexture,
 } from './renderer.js';
+import { syncWorkerState } from './workerClient.js';
 import {openQueryDialog} from './queryDialog.js';
 import { getTileScreenPos, setTileInCenter } from './selectionTools.js';
 import { syncExtrusionUI, finishExtrusion } from './pathTools.js';
@@ -423,6 +425,27 @@ function menuClicks(command, tool) {
     case 'rotate-right': camera.targetRotation += Math.PI / 12; break;
     case 'tilt-up': camera.targetTilt = clamp(camera.targetTilt * 1.05, camera.minTilt, camera.maxTilt); break;
     case 'tilt-down': camera.targetTilt = clamp(camera.targetTilt / 1.05, camera.minTilt, camera.maxTilt); break;
+    case 'trigger-volcano':
+      // Pick a random location away from the edges
+      const vx = 10 + Math.floor(Math.random() * (GRID_W - 20));
+      const vy = 10 + Math.floor(Math.random() * (GRID_H - 20));
+
+      // Pan and zoom the camera directly to the eruption site!
+      const [wx, wy] = tileCenterWorld(vx, vy);
+      camera.targetPanX = wx;
+      camera.targetPanY = wy;
+      camera.targetZoom = 1.0;
+
+      lemmings.push({
+        id: Math.random().toString(36).substr(2, 9),
+        x: vx,
+        y: vy,
+        a: 0, s: 0, c: [0, 0, 0],
+        grownUp: true,
+        isVolcanoSeed: true
+      });
+      syncWorkerState();
+      break;
     default:
       console.error('invalid menu item', command);
   }
