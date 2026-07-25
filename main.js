@@ -37,7 +37,7 @@ import { seedDemo, brushApplyDelta, brushSmoothTouched, commitLevelSelection, fl
 import { brushForest, placeBuildingAtSelected, placeCustomBuildingAtSelected, removeBuildingAtSelected } from './buildingTools.js';
 import { appendExtrusionPoint, finishExtrusion, editPathDown, editPathDrag, syncExtrusionUI } from './pathTools.js';
 import { placeCubeAt, removeCubeAt, editCubeDown, editCubeDrag } from './cubeTools.js';
-import { placeLemmingAt, cleaveLemmingAt } from './lemmingTools.js';
+import { submitRuntimeAction } from './multiplayer/runtimeActions.js';
 import { setTileInCenter, queryDown, getTileScreenPos } from './selectionTools.js';
 import './multiplayer/roomUI.js';
 import {
@@ -310,11 +310,9 @@ export function performTool(e) {
   } else if (appState.toolMode === 'remove-cube') {
     removeCubeAt(selected.x, selected.y);
   } else if (appState.toolMode === 'plop-lemming') {
-    placeLemmingAt(selected.x, selected.y);
-    syncWorkerState();
+    if (submitRuntimeAction({ type: 'lemming.plop', x: selected.x, y: selected.y }).applied) syncWorkerState();
   } else if (appState.toolMode === 'cleave-lemming') {
-    cleaveLemmingAt(selected.x, selected.y);
-    syncWorkerState();
+    if (submitRuntimeAction({ type: 'lemming.cleave', x: selected.x, y: selected.y }).applied) syncWorkerState();
   } else if (appState.toolMode === 'query') {
     const target = queryDown(selected.x, selected.y);
     if (target) {

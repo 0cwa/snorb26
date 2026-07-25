@@ -40,6 +40,7 @@ import { syncExtrusionUI, finishExtrusion } from './pathTools.js';
 import { seedDemo } from './terrainTools.js';
 import { saveMapToLocal, downloadMapFile, uploadMapFile } from './storage.js';
 import { orbitPivot, setOrbitPivot, performTool } from './main.js';
+import { submitRuntimeAction } from './multiplayer/runtimeActions.js';
 import { initializeCommandBus, rebuildBuildingIdIndex } from './multiplayer/commandBus.js';
 import { AuthorityRole, getAuthorityRole } from './authority.js';
 
@@ -361,8 +362,8 @@ export function updateActiveToolMenuItem(tool) {
 
 function menuClicks(command, tool) {
   const guest = getAuthorityRole() === AuthorityRole.GUEST;
-  const guestTools = new Set(['pan', 'orbit', 'raise', 'lower', 'smooth', 'level', 'build', 'custom-build', 'forest', 'demolish']);
-  const hostCommands = new Set(['toggle-play', 'reset', 'open-file', 'trigger-volcano', 'trigger-earthquake']);
+  const guestTools = new Set(['pan', 'orbit', 'raise', 'lower', 'smooth', 'level', 'build', 'custom-build', 'forest', 'demolish', 'plop-lemming', 'cleave-lemming']);
+  const hostCommands = new Set(['reset', 'open-file', 'trigger-volcano', 'trigger-earthquake']);
   if (guest && ((tool && !guestTools.has(tool)) || hostCommands.has(command))) return;
   const moveSpeed =100 / camera.zoom;
   const zoomStep = 1.1;
@@ -389,7 +390,7 @@ function menuClicks(command, tool) {
 
   switch(command) {
     case 'toggle-play':
-      appState.isPlaying = !appState.isPlaying;
+      submitRuntimeAction({ type: 'simulation.setPlaying', isPlaying: !appState.isPlaying });
       const playBtn = document.querySelector('button[data-command="toggle-play"]');
       if (playBtn) playBtn.textContent = appState.isPlaying ? 'Pause' : 'Play';
       break;
@@ -665,7 +666,7 @@ Object.entries({
     const hex = e.target.value;
     cubeSettings.color = [ parseInt(hex.substr(1,2), 16)/255, parseInt(hex.substr(3,2), 16)/255, parseInt(hex.substr(5,2), 16)/255 ];
   },
-  gameSpeed: e => appState.gameSpeed = parseFloat(e.target.value),
+  gameSpeed: e => submitRuntimeAction({ type: 'simulation.setSpeed', gameSpeed: parseFloat(e.target.value) }),
   setLoveChance: e => appState.loveChance = parseFloat(e.target.value),
   setAgeGapPenalty: e => appState.ageGapPenalty = parseFloat(e.target.value),
   setBabyChance: e => appState.babyChance = parseFloat(e.target.value),
@@ -678,7 +679,7 @@ Object.entries({
   const el = document.getElementById(entry[0])
 //   entry[1]({ target: el });
   el.addEventListener('input', e => {
-    if (getAuthorityRole() === AuthorityRole.GUEST && !['brushSize', 'brushSmooth'].includes(entry[0])) return;
+    if (getAuthorityRole() === AuthorityRole.GUEST && !['brushSize', 'brushSmooth', 'gameSpeed'].includes(entry[0])) return;
     entry[1](e);
     if (['cbWidth', 'cbLength', 'cbHeight', 'cbRotation', 'cbColor'].includes(entry[0]) && appState.toolMode === 'edit-cube' && appState.activeCubeIndex >= 0) {
         const c = cubes[appState.activeCubeIndex];

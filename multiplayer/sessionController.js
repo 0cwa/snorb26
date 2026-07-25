@@ -10,6 +10,7 @@ import { roomIdString } from './roomCapability.js';
 import { SnapshotPublisher, SnapshotReceiver } from './snapshotFlow.js';
 import { applySimulationSnapshot, captureSimulationSnapshot, encodeSimulationSnapshot } from './snapshotCodec.js';
 import { hostWebRtcRoom, joinWebRtcRoom } from './webrtcRoom.js';
+import { applyRuntimeAction, setGuestRuntimeActionHandler } from './runtimeActions.js';
 
 const MAX_PEERS = 8;
 const encoder = new TextEncoder();
@@ -66,6 +67,7 @@ class RoomSession extends EventTarget {
     this.role = AuthorityRole.GUEST; setAuthorityRole(this.role); stopWorker();
     this.receiver = new SnapshotReceiver(snapshot => { applySimulationSnapshot(snapshot); rebuildBuildingIdIndex(); refreshWorld(); });
     setGuestRequestHandler(request => this.#sendCommandRequest(request));
+    setGuestRuntimeActionHandler(request => this.#sendCommandRequest(request));
     try {
       this.signaling = await joinWebRtcRoom(capability, { rtcConfig, onTransport: transport => generation === this.generation ? this.#attach(transport, false) : transport.close('stale-session'), onWarning: message => this.#status({ message, error: true }) });
     } catch (error) { await this.leave(); throw error; }
@@ -136,12 +138,24 @@ class RoomSession extends EventTarget {
   async #acceptCommand(peer, frame) {
     if (frame.sequence <= peer.lastRequestSequence) throw new Error('Duplicate command sequence');
     peer.lastRequestSequence = frame.sequence;
+    const request = decodeJsonPayload(frame.payload);
     if (!this.allowGuestEdits) {
-      peer.transport.sendReliable(encodeFrame({ kind: MessageKind.COMMAND_RESULT, roomId: this.roomId, hostEpoch: this.hostEpoch, sequence: frame.sequence, payload: encodeJsonPayload({ accepted: false, error: 'Guest edits are disabled' }) }));
+      peer.transport.sendReliable(encodeFrame({ kind: MessageKind.COMMAND_RESULT, roomId: this.roomId, hostEpoch: this.hostEpoch, sequence: frame.sequence, payload: encodeJsonPayload({ requestId: request.requestId, accepted: false, error: 'Guest edits are disabled' }) }));
       return;
     }
     const now = performance.now(); peer.requests = peer.requests.filter(time => now - time < 1000);
-    const request = decodeJsonPayload(frame.payload);
+    if (request.action) {
+      if (peer.requests.length >= 8) {
+        peer.transport.sendReliable(encodeFrame({ kind: MessageKind.COMMAND_RESULT, roomId: this.roomId, hostEpoch: this.hostEpoch, sequence: frame.sequence, payload: encodeJsonPayload({ requestId: request.requestId, accepted: false, error: 'Action rate exceeded', kind: 'action' }) }));
+        return;
+      }
+      peer.requests.push(now);
+      let accepted = false, error = null;
+      try { applyRuntimeAction(request.action); accepted = true; } catch (cause) { error = cause.message; }
+      peer.transport.sendReliable(encodeFrame({ kind: MessageKind.COMMAND_RESULT, roomId: this.roomId, hostEpoch: this.hostEpoch, sequence: frame.sequence, payload: encodeJsonPayload({ requestId: request.requestId, accepted, error, kind: 'action' }) }));
+      if (accepted) { syncWorkerState(); saveMapToLocal(); }
+      return;
+    }
     const commands = Array.isArray(request.commands) ? request.commands : [request.command];
     const commandCost = commands.reduce((sum, command) => {
       if (command?.type === 'terrain.level') return sum + (Math.abs(command.x1 - command.x0) + 1) * (Math.abs(command.y1 - command.y0) + 1);
@@ -180,7 +194,7 @@ class RoomSession extends EventTarget {
   async leave() {
     this.generation++;
     clearTimeout(this.loroBroadcastTimer); this.publisher?.stop(); this.publisher = null;
-    this.unsubscribeCommands?.(); this.unsubscribeCommands = null; setGuestRequestHandler(null);
+    this.unsubscribeCommands?.(); this.unsubscribeCommands = null; setGuestRequestHandler(null); setGuestRuntimeActionHandler(null);
     this.signaling?.close(); this.signaling = null;
     for (const peer of this.peers) peer.transport.close('room-left'); this.peers.clear();
     const restore = this.role === AuthorityRole.GUEST ? this.localBackup : null;
