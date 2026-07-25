@@ -121,6 +121,24 @@ let orbitDragX = 0;
 let lastHoverPickTime = 0;
 const HOVER_PICK_INTERVAL_MS = 50;
 
+// Keep the world point under a screen position fixed while changing zoom targets.
+// This intentionally uses the target camera state so consecutive wheel events
+// compose cleanly while the rendered camera is still easing toward its target.
+function setTargetZoomAtScreenPoint(sx, sy, nextZoom) {
+  const oldZoom = camera.targetZoom;
+  const targetZoom = clamp(nextZoom, camera.minZoom, camera.maxZoom);
+  if (targetZoom === oldZoom) return;
+
+  const offsetX = sx - canvas.width * 0.5;
+  const offsetY = sy - canvas.height * 0.5;
+  const worldX = offsetX / oldZoom + camera.targetPanX;
+  const worldY = offsetY / oldZoom + camera.targetPanY;
+
+  camera.targetZoom = targetZoom;
+  camera.targetPanX = worldX - offsetX / targetZoom;
+  camera.targetPanY = worldY - offsetY / targetZoom;
+}
+
 canvas.addEventListener("contextmenu", e => e.preventDefault());
 
 canvas.addEventListener("pointerdown", (e) => {
@@ -422,26 +440,17 @@ canvas.addEventListener("dblclick", (e) => {
   const sx = e.clientX * (canvas.width / innerWidth);
   const sy = e.clientY * (canvas.height / innerHeight);
 
-  // Calculate where we are before zooming
-  const [wxB, wyB] = screenToWorld(sx, sy, canvas.width, canvas.height);
-
   // Shift key toggles between 2x zoom and 0.5x zoom
   const factor = e.shiftKey ? 0.5 : 2.0;
-  camera.targetZoom = clamp(camera.targetZoom * factor, camera.minZoom, camera.maxZoom);
-
-  // Offset the target pan so we zoom toward the mouse cursor
-  const oldZoom = camera.zoom;
-  camera.zoom = camera.targetZoom;
-  const [wxA, wyA] = screenToWorld(sx, sy, canvas.width, canvas.height);
-  camera.targetPanX += wxB - wxA;
-  camera.targetPanY += wyB - wyA;
-  camera.zoom = oldZoom;
+  setTargetZoomAtScreenPoint(sx, sy, camera.targetZoom * factor);
 });
 
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
+  const sx = e.clientX * (canvas.width / innerWidth);
+  const sy = e.clientY * (canvas.height / innerHeight);
   const zoomStep = Math.sign(e.deltaY) > 0 ? 0.8 : 1.2;
-  camera.targetZoom = clamp(camera.targetZoom * zoomStep, camera.minZoom, camera.maxZoom);
+  setTargetZoomAtScreenPoint(sx, sy, camera.targetZoom * zoomStep);
 
   saveMapToLocal();
 }, { passive: false });
