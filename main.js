@@ -115,11 +115,41 @@ resize();
 // Canvas Events
 const pointers = new Map();
 let dragPrimaryId = null, pinchStartDist = 0, pinchStartZoom = 1, pinchStartPan = [0, 0], pinchAnchorWorld = [0, 0], pinchStartAngle = 0, pinchStartRot = 0;
-export let orbitPivot = null;
-export function setOrbitPivot(val) { orbitPivot = val }
+// Keep the orbit focus in continuous map coordinates, rather than waiting for
+// a GPU pick of a discrete tile. A non-null initial value also prevents the
+// legacy menu hook from scheduling an unnecessary pick before the first tick.
+export let orbitPivot = { x: GRID_W * 0.5, y: GRID_H * 0.5 };
+export function setOrbitPivot() { /* Legacy menu hook; focus is captured synchronously below. */ }
 let orbitDragX = 0;
 let lastHoverPickTime = 0;
 const HOVER_PICK_INTERVAL_MS = 50;
+let orbitInputWasActive = false;
+
+function captureOrbitFocusAtScreen(sx = canvas.width * 0.5, sy = canvas.height * 0.5) {
+  const wx = (sx - canvas.width * 0.5) / camera.zoom + camera.panX;
+  const wy = (sy - canvas.height * 0.5) / camera.zoom + camera.panY;
+  const rx = wx / TILE_W + wy / (TILE_H * camera.tilt);
+  const ry = -wx / TILE_W + wy / (TILE_H * camera.tilt);
+  const c = Math.cos(camera.rotation);
+  const s = Math.sin(camera.rotation);
+  orbitPivot = {
+    x: rx * c + ry * s + GRID_W * 0.5,
+    y: -rx * s + ry * c + GRID_H * 0.5,
+  };
+}
+
+function orbitFocusWorld(rotation = camera.rotation, tilt = camera.tilt) {
+  const px = orbitPivot.x - GRID_W * 0.5;
+  const py = orbitPivot.y - GRID_H * 0.5;
+  const c = Math.cos(rotation);
+  const s = Math.sin(rotation);
+  const rx = px * c - py * s;
+  const ry = px * s + py * c;
+  return [
+    (rx - ry) * (TILE_W * 0.5),
+    (rx + ry) * (TILE_H * tilt * 0.5),
+  ];
+}
 
 // Keep the world point under a screen position fixed while changing zoom targets.
 // This intentionally uses the target camera state so consecutive wheel events
@@ -190,13 +220,7 @@ canvas.addEventListener("pointerdown", (e) => {
     dragPrimaryId = e.pointerId;
 
     if(appState.toolMode === 'orbit') {
-      // This updates the 'selected' object in state.js via the pickProgram
-      orbitPivot = null;
-      requestPick(canvas.width * 0.5, canvas.height * 0.5, (selected) => {
-        if(selected.has) {
-          orbitPivot = {x: selected.x, y: selected.y};
-        }
-      });
+      captureOrbitFocusAtScreen();
     }
   }
 
@@ -204,15 +228,13 @@ canvas.addEventListener("pointerdown", (e) => {
     const pts = Array.from(pointers.values());
     pinchStartDist = Math.max(1, Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y));
     pinchStartZoom = camera.zoom; pinchStartPan = [camera.panX, camera.panY];
-    pinchAnchorWorld = screenToWorld((pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2, canvas.width, canvas.height);
+    const pinchCenterX = (pts[0].x + pts[1].x) / 2;
+    const pinchCenterY = (pts[0].y + pts[1].y) / 2;
+    pinchAnchorWorld = screenToWorld(pinchCenterX, pinchCenterY, canvas.width, canvas.height);
     // Capture starting angles for rotation
     pinchStartAngle = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
     pinchStartRot = camera.rotation;
-    // Anchor the orbit pivot to the pinch center to prevent fighting the drift compensator
-    orbitPivot = null;
-    requestPick(pinchCenterX, pinchCenterY, (sel) => {
-      if (sel.has) orbitPivot = { x: sel.x, y: sel.y };
-    });
+    captureOrbitFocusAtScreen(pinchCenterX, pinchCenterY);
   }
 });
 
@@ -471,12 +493,12 @@ function tick(now) {
 
   const l = camera.lerpFactor;
 
-  // We need a way to map world back to tile index. Since we have 'selected',
-  // let's use the current selection or the map center as the pivot.
-  const pivotX = orbitPivot ? orbitPivot.x : GRID_W / 2;
-  const pivotY = orbitPivot ? orbitPivot.y : GRID_H / 2;
-  // Capture the world position of our pivot tile BEFORE rotation/tilt changes
-  const [oldWx, oldWy] = tileCenterWorld(pivotX, pivotY);
+  const orbitInputActive = (pointers.size === 1 && appState.toolMode === 'orbit') ||
+    activeCommands.has('rotate-left') || activeCommands.has('rotate-right') ||
+    activeCommands.has('tilt-up') || activeCommands.has('tilt-down');
+  if (orbitInputActive && !orbitInputWasActive) captureOrbitFocusAtScreen();
+  orbitInputWasActive = orbitInputActive;
+  const [oldWx, oldWy] = orbitFocusWorld();
 
   // Fluid Keyboard Movement Processing
   if (activeCommands.size > 0) {
@@ -527,7 +549,7 @@ function tick(now) {
 
   // --- STABILIZATION EXECUTION ---
   // Calculate where that same tile is in the world NOW with the new rotation/tilt
-  const [newWx, newWy] = tileCenterWorld(pivotX, pivotY);
+  const [newWx, newWy] = orbitFocusWorld();
 
   // The difference between the two is the "drift" caused by the projection math.
   // We subtract this drift from the target pan to keep the tile stationary on screen.
@@ -544,10 +566,6 @@ function tick(now) {
     pinchAnchorWorld[0] += driftX;
     pinchAnchorWorld[1] += driftY;
   }
-
-  if (pointers.size === 0 && activeCommands.size === 0 && Math.abs(driftX) < 1 && Math.abs(driftY) < 1) {
-    orbitPivot = null;
-  };
 
   draw(appState.gameTime);
   hud.textContent = `${appState.toolMode}\nzoom: ${Math.round(camera.zoom * 100)}%, tilt: ${Math.round(camera.tilt * 100)}%, rot: ${Math.round((camera.rotation * 180 / Math.PI) % 360)}°\ntile: (${selected.x}, ${selected.y}), lemmings: ${lemmings.length}, syncId: ${currentSyncId}`;
