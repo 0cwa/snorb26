@@ -40,6 +40,8 @@ import { syncExtrusionUI, finishExtrusion } from './pathTools.js';
 import { seedDemo } from './terrainTools.js';
 import { saveMapToLocal, downloadMapFile, uploadMapFile } from './storage.js';
 import { orbitPivot, setOrbitPivot, performTool } from './main.js';
+import { initializeCommandBus, rebuildBuildingIdIndex } from './multiplayer/commandBus.js';
+import { AuthorityRole, getAuthorityRole } from './authority.js';
 
 let activeMenu = null;
 let dragStartedOnTrigger = false;
@@ -358,6 +360,10 @@ export function updateActiveToolMenuItem(tool) {
 }
 
 function menuClicks(command, tool) {
+  const guest = getAuthorityRole() === AuthorityRole.GUEST;
+  const guestTools = new Set(['pan', 'orbit', 'raise', 'lower', 'smooth', 'level', 'build', 'custom-build', 'forest', 'demolish']);
+  const hostCommands = new Set(['toggle-play', 'reset', 'open-file', 'trigger-volcano', 'trigger-earthquake']);
+  if (guest && ((tool && !guestTools.has(tool)) || hostCommands.has(command))) return;
   const moveSpeed =100 / camera.zoom;
   const zoomStep = 1.1;
   if(tool) {
@@ -374,6 +380,7 @@ function menuClicks(command, tool) {
 
   const toggler = appStateTogglers.find(x => x[0] === command);
   if(toggler) {
+    if (guest && !['showGrid', 'showUnderground', 'eventNotifications'].includes(toggler[1])) return;
     appState[toggler[1]] = !appState[toggler[1]];
     updateViewMenuUI();
     saveMapToLocal();
@@ -537,6 +544,8 @@ document.querySelector('#newMapDialog form')?.addEventListener('submit', (e) => 
 
   // Clear map state
   buildingAt.fill(0);
+  rebuildBuildingIdIndex();
+  initializeCommandBus().catch(error => console.error('Could not open map command history', error));
   mapSettings.waterLevel = 86;
   const wEl = document.getElementById('waterLevel');
   if (wEl) wEl.value = mapSettings.waterLevel;
@@ -668,6 +677,7 @@ Object.entries({
   const el = document.getElementById(entry[0])
 //   entry[1]({ target: el });
   el.addEventListener('input', e => {
+    if (getAuthorityRole() === AuthorityRole.GUEST && !['brushSize', 'brushSmooth'].includes(entry[0])) return;
     entry[1](e);
     if (['cbWidth', 'cbLength', 'cbHeight', 'cbRotation', 'cbColor'].includes(entry[0]) && appState.toolMode === 'edit-cube' && appState.activeCubeIndex >= 0) {
         const c = cubes[appState.activeCubeIndex];

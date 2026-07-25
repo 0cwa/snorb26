@@ -1,7 +1,6 @@
 import {
   GRID_W,
   GRID_H,
-  buildingAt,
   brush,
   BUILD_SPRITES,
   selected,
@@ -12,76 +11,119 @@ import {
   loadCustomTexture,
 } from './renderer.js';
 import { saveMapToLocal } from './storage.js';
+import {
+  getBuildingIdAt,
+  submitSemanticCommand,
+  submitSemanticCommands,
+} from './multiplayer/commandBus.js';
+import { randomId } from './multiplayer/ids.js';
+
+function parseUrls(input) {
+  return String(input || '').split(',').map(url => url.trim()).filter(Boolean);
+}
+
+function typeForUrl(url, registry = customBuildingRegistry) {
+  let index = registry.indexOf(url);
+  if (index === -1) {
+    registry.push(url);
+    index = registry.length - 1;
+  }
+  return BUILD_SPRITES + 1 + index;
+}
+
+export function placeBuildingAtSelected() {
+  if (!selected.has) return;
+  const result = submitSemanticCommand({
+    type: 'building.place',
+    x: selected.x,
+    y: selected.y,
+    buildingType: 1 + Math.floor(Math.random() * BUILD_SPRITES),
+    id: randomId('building'),
+  });
+  if (!result.applied) return result;
+  rebuildBuildingInstances();
+  saveMapToLocal();
+  return result;
+}
 
 export function placeCustomBuildingAtSelected(input) {
   if (!selected.has) return;
-
-  // Split input by commas and pick one random URL
-  const urls = input.split(',').map(u => u.trim()).filter(u => u.length > 0);
+  const urls = parseUrls(input);
   if (urls.length === 0) return;
-
   const url = urls[Math.floor(Math.random() * urls.length)];
-
-  // Add the specific URL to the registry if it doesn't exist yet
-  let idx = customBuildingRegistry.indexOf(url);
-  if (idx === -1) {
-    customBuildingRegistry.push(url);
-    idx = customBuildingRegistry.length - 1;
-    loadCustomTexture(url);
-  }
-
-  buildingAt[selected.id] = BUILD_SPRITES + 1 + idx;
+  const registryPreview = [...customBuildingRegistry];
+  const result = submitSemanticCommand({
+    type: 'building.place',
+    x: selected.x,
+    y: selected.y,
+    buildingType: typeForUrl(url, registryPreview),
+    id: randomId('building'),
+    textureUrl: url,
+  });
+  if (!result.applied) return result;
+  loadCustomTexture(url);
   rebuildBuildingInstances();
   saveMapToLocal();
+  return result;
 }
 
 export function removeBuildingAtSelected(cx, cy) {
-  const r = Math.max(0, (brush.radius - 1) | 0); // Use brush radius
-  for (let oy = -r; oy <= r; oy++) {
-    for (let ox = -r; ox <= r; ox++) {
-      const x = cx + ox, y = cy + oy;
-      if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) continue;
-      if (ox * ox + oy * oy > r * r) continue;
-
-      const idx = y * GRID_W + x;
-      buildingAt[idx] = 0; // Clear building
+  const radius = Math.max(0, (brush.radius - 1) | 0);
+  const commands = [];
+  for (let oy = -radius; oy <= radius; oy++) {
+    for (let ox = -radius; ox <= radius; ox++) {
+      const x = cx + ox;
+      const y = cy + oy;
+      if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H || ox * ox + oy * oy > radius * radius) continue;
+      const id = getBuildingIdAt(x, y);
+      if (id) commands.push({ type: 'building.remove', id });
     }
   }
-  rebuildBuildingInstances(); // Update GPU
-  saveMapToLocal(); // Persist changes
+  const result = submitSemanticCommands(commands);
+  if (!result.applied) return result;
+  if (commands.length) {
+    rebuildBuildingInstances();
+    saveMapToLocal();
+  }
+  return result;
 }
 
 export function brushForest(cx, cy, input) {
-  const r = Math.max(1, brush.radius | 0);
+  const radius = Math.max(1, brush.radius | 0);
   const density = brush.smooth || 0.25;
-
-  // Parse URLs once before the loop for efficiency
-  const urls = input.split(',').map(u => u.trim()).filter(u => u.length > 0);
+  const urls = parseUrls(input);
   if (urls.length === 0) return;
 
-  for (let oy = -r; oy <= r; oy++) {
-    for (let ox = -r; ox <= r; ox++) {
-      const x = cx + ox, y = cy + oy;
-
-      if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) continue;
-      if (ox * ox + oy * oy > r * r) continue;
-
-      if (Math.random() < density) {
-        // Randomly pick a URL for this specific tile
-        const url = urls[Math.floor(Math.random() * urls.length)];
-
-        let idx = customBuildingRegistry.indexOf(url);
-        if (idx === -1) {
-          customBuildingRegistry.push(url);
-          idx = customBuildingRegistry.length - 1;
-          loadCustomTexture(url);
-        }
-
-        buildingAt[y * GRID_W + x] = BUILD_SPRITES + 1 + idx;
-      }
+  // Canonicalize all random choices into explicit place commands before they
+  // enter Loro, so replay never calls Math.random().
+  const registryPreview = [...customBuildingRegistry];
+  const commands = [];
+  const usedUrls = new Set();
+  for (let oy = -radius; oy <= radius; oy++) {
+    for (let ox = -radius; ox <= radius; ox++) {
+      const x = cx + ox;
+      const y = cy + oy;
+      if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H || ox * ox + oy * oy > radius * radius) continue;
+      if (Math.random() >= density) continue;
+      const url = urls[Math.floor(Math.random() * urls.length)];
+      usedUrls.add(url);
+      commands.push({
+        type: 'building.place',
+        x,
+        y,
+        buildingType: typeForUrl(url, registryPreview),
+        id: randomId('building'),
+        textureUrl: url,
+      });
     }
   }
 
-  rebuildBuildingInstances();
-  saveMapToLocal();
+  const result = submitSemanticCommands(commands);
+  if (!result.applied) return result;
+  for (const url of usedUrls) loadCustomTexture(url);
+  if (commands.length) {
+    rebuildBuildingInstances();
+    saveMapToLocal();
+  }
+  return result;
 }

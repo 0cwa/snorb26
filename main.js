@@ -28,16 +28,23 @@ import {
 } from './renderer.js';
 
 import {openQueryDialog} from './queryDialog.js';
-import { saveMapToLocal, loadMapFromLocal, downloadMapFile, uploadMapFile } from './storage.js';
+import { saveMapToLocal, saveLocalPreferences, loadLocalPreferences, loadMapFromLocal, downloadMapFile, uploadMapFile } from './storage.js';
 import { updateViewMenuUI, activeCommands } from './menuSystem.js';
 import { syncWorkerState, currentSyncId, postTick } from './workerClient.js';
+import { AuthorityRole, getAuthorityRole, isSimulationAuthority } from './authority.js';
 
 import { seedDemo, brushApplyDelta, brushSmoothTouched, commitLevelSelection, flushTerrainSave } from './terrainTools.js';
-import { brushForest, placeCustomBuildingAtSelected, removeBuildingAtSelected } from './buildingTools.js';
+import { brushForest, placeBuildingAtSelected, placeCustomBuildingAtSelected, removeBuildingAtSelected } from './buildingTools.js';
 import { appendExtrusionPoint, finishExtrusion, editPathDown, editPathDrag, syncExtrusionUI } from './pathTools.js';
 import { placeCubeAt, removeCubeAt, editCubeDown, editCubeDrag } from './cubeTools.js';
 import { placeLemmingAt, cleaveLemmingAt } from './lemmingTools.js';
 import { setTileInCenter, queryDown, getTileScreenPos } from './selectionTools.js';
+import './multiplayer/roomUI.js';
+import {
+  beginSemanticTransaction,
+  commitSemanticTransaction,
+  initializeCommandBus,
+} from './multiplayer/commandBus.js';
 
 import * as stateAPI from './state.js';
 import * as rendererAPI from './renderer.js';
@@ -69,11 +76,14 @@ window.snorb = {
 // Setup Map & DOM Elements
 const hud = document.getElementById('hud');
 initWebGL(document.getElementById('scene'));
+const restoredLocalPreferences = loadLocalPreferences();
 if (!loadMapFromLocal()) {
   seedDemo();
-  // Center the view and zoom out completely on first load
-  setTileInCenter(GRID_W / 2, GRID_H / 2);
-  camera.targetZoom = camera.defaultZoom;
+  if (!restoredLocalPreferences) {
+    // Center the view and zoom out completely on first load.
+    setTileInCenter(GRID_W / 2, GRID_H / 2);
+    camera.targetZoom = camera.defaultZoom;
+  }
 } else {
   // If we loaded from local, we must tell the renderer to update its buffers
   updatePaletteTexture();
@@ -86,6 +96,7 @@ if (!loadMapFromLocal()) {
 }
 uploadElevations();
 updateViewMenuUI();
+initializeCommandBus().catch(error => console.error('Could not initialize semantic edit history', error));
 syncWorkerState();
 
 // Initial Camera 
@@ -182,7 +193,9 @@ canvas.addEventListener("pointerdown", (e) => {
   orbitDragX = 0;
 
   requestPick(sx, sy, () => {
-    if (!selected.has) return;
+    // Picking resolves on a later draw. Ignore a click whose pointer was
+    // already released so it cannot strand a semantic transaction.
+    if (!pointers.has(e.pointerId) || !selected.has) return;
     performTool(e);
   });
 
@@ -219,6 +232,11 @@ canvas.addEventListener("pointerdown", (e) => {
 export function performTool(e) {
   // If called by keyboard (Enter), 'e' will be undefined.
   const hasPointer = e && e.pointerId !== undefined;
+  const guestAllowedTools = new Set(['pan', 'orbit', 'raise', 'lower', 'smooth', 'level', 'build', 'custom-build', 'forest', 'demolish']);
+  if (getAuthorityRole() === AuthorityRole.GUEST && !guestAllowedTools.has(appState.toolMode)) return;
+  const semanticStroke = ['demolish', 'forest', 'raise', 'lower', 'smooth'].includes(appState.toolMode);
+  const forestHasUrl = appState.toolMode !== 'forest' || document.getElementById('customUrl').value.trim();
+  if (hasPointer && semanticStroke && forestHasUrl && !paintStroke.active) beginSemanticTransaction(appState.toolMode);
 
   if (appState.toolMode === 'build') {
     placeBuildingAtSelected();
@@ -425,9 +443,9 @@ const pointerUpCancel = (e) => {
     if (appState.toolMode === 'edit-path') {
       appState.editPathNodeIndex = -1;
     }
-    brushSmoothTouched();
     paintStroke.active = false;
     paintStroke.touched.clear();
+    commitSemanticTransaction();
   }
   if (!flushTerrainSave()) saveMapToLocal();
   pointers.delete(e.pointerId); dragPrimaryId = pointers.size === 1 ? Array.from(pointers.keys())[0] : null;
@@ -463,7 +481,7 @@ function tick(now) {
   const dtReal = lastTime ? (now - lastTime) : 0;
   lastTime = now;
 
-  if (appState.isPlaying) {
+  if (appState.isPlaying && isSimulationAuthority()) {
     appState.gameTime += dtReal * appState.gameSpeed;
     const dtLemming = (dtReal / 1000) * appState.gameSpeed;
     postTick(dtLemming);
@@ -556,8 +574,10 @@ function tick(now) {
 requestAnimationFrame(tick);
 
 window.addEventListener('blur', () => {
+  saveLocalPreferences(true);
   document.body.classList.add('window-inactive');
 });
+window.addEventListener('beforeunload', () => saveLocalPreferences(true));
 
 window.addEventListener('focus', () => {
   document.body.classList.remove('window-inactive');

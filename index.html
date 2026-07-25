@@ -246,6 +246,24 @@
       </form>
     </div>
   </dialog>
+  <button type="button" id="multiplayerButton" class="button">Room</button>
+  <dialog id="roomDialog">
+    <div class="content room-panel">
+      <h2>Multiplayer Room</h2>
+      <p id="roomStatus">Single-player</p>
+      <label>WebTorrent WSS tracker
+        <input id="roomTracker" type="url" value="wss://tracker.webtorrent.dev" maxlength="2048">
+      </label>
+      <label><input id="allowGuestEdits" type="checkbox" checked> Allow guest edits</label>
+      <div class="controls room-controls">
+        <button type="button" class="button" id="hostRoomBtn">Host current map</button>
+        <button type="button" class="button" id="joinRoomBtn">Join invite</button>
+        <button type="button" class="button" id="copyInviteBtn" disabled>Copy invite</button>
+        <button type="button" class="button" id="leaveRoomBtn">Leave room</button>
+        <button type="button" class="button" id="closeRoomBtn">Close</button>
+      </div>
+    </div>
+  </dialog>
   <script type="module" src="main.js"></script>
 </body>
 </html>

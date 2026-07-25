@@ -23,11 +23,10 @@ __DATA__
 
 ### `map`
 Defines the global environment and grid dimensions.
-* **version**: Currently, 2. The original version 1 was the JSON format.
+* **version**: Currently, 3. Version 3 establishes this file as an authoritative map payload and removes browser-local camera/UI preferences. Version 2 files remain loadable.
+* **mapId**: A random 128-bit hexadecimal identity used to scope local semantic edit history.
 * **width / height**: The dimensions of the tile grid (typically 256).
 * **waterLevel**: 0-255. Determines the elevation at which the water plane renders.
-* **showGrid**: `true` or `false`.
-* **showUnderground**: `true` or `false`.
 * **loveChance**: Base probability (0.0 to 1.0) of falling in love.
 * **ageGapPenalty**: Reduction in love chance per year of age difference.
 * **babyChance**: Probability of having a baby per tick when ready.
@@ -36,17 +35,11 @@ Defines the global environment and grid dimensions.
 * **deathAge**: Age at which death becomes possible.
 * **deathChance**: Base multiplier for the chance of death per tick above the death age.
 
-### `camera`
-Stores the viewport state.
-* **panX / panY**: World coordinates of the camera focus.
-* **zoom**: 1.0 is default.
-* **tilt**: Vertical skew (0.35 to 2.0).
-* **rotation**: Radiant value for world rotation.
+### Local state (not part of the file)
+Camera position, brush settings, grid/underground visibility, notifications, selections, and active tools belong to the local browser. Snorb stores supported preferences separately in local storage. Legacy version 2 `camera` and `brush` blocks are accepted but ignored when a map file is opened.
 
-### `brush`
-Stores the brush settings.
-* **radius**: Size (1 to 8)
-* **smooth**: Factor (0 to 1)
+### `buildingId`
+Stores the stable identity and tile position of a durable building edit. The dense building type remains in the binary data section. Older files without these blocks receive deterministic baseline IDs when loaded.
 
 ### `customBuildings`
 Stores the URLs for the custom sprites used in the Forest/Custom Build tools

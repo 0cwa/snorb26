@@ -17,26 +17,45 @@ import {
 } from './renderer.js';
 import { getTileScreenPos } from './selectionTools.js';
 import { saveMapToLocal } from './storage.js';
+import { isSimulationAuthority, mayRunLocalSimulation } from './authority.js';
+import { rebuildBuildingIdIndex } from './multiplayer/commandBus.js';
 
-export const worker = new Worker('lemmingWorker.js');
+export let worker = null;
 export let workerBusy = false;
+
+export function ensureWorker() {
+  if (!worker && isSimulationAuthority()) {
+    worker = new Worker('lemmingWorker.js');
+    worker.onmessage = handleWorkerMessage;
+  }
+  return worker;
+}
+
+export function stopWorker() {
+  worker?.terminate();
+  worker = null;
+  workerBusy = false;
+  currentSyncId++;
+}
+
 export function setWorkerBusy(value) { workerBusy = value }
 export let currentSyncId = 0;
 
 export function postTick(dtLemming) {
-    if (dtLemming > 0 && !workerBusy) {
+    if (mayRunLocalSimulation() && dtLemming > 0 && !workerBusy) {
         setWorkerBusy(true);
-        worker.postMessage({ type: 'tick', dt: dtLemming });
+        ensureWorker()?.postMessage({ type: 'tick', dt: dtLemming });
     }
 }
 
-worker.onmessage = (e) => {
+function handleWorkerMessage(e) {
   const msg = e.data;
   if (msg.type === 'tick_result') {
     workerBusy = false;
 
-    // Drop stale results from before a map reset/sync
-    if (msg.syncId !== currentSyncId) return;
+    // Drop stale results from before a map reset/sync. A guest must never
+    // commit local worker output; it will eventually consume host snapshots.
+    if (!isSimulationAuthority() || msg.syncId !== currentSyncId) return;
 
     lemmings.length = 0;
     lemmings.push(...msg.lemmings);
@@ -47,6 +66,7 @@ worker.onmessage = (e) => {
     }
     if (msg.buildingsChanged) {
       buildingAt.set(msg.buildingAt);
+      rebuildBuildingIdIndex();
       rebuildBuildingInstances();
     }
     if (msg.needsBufferRebuild) {
@@ -61,7 +81,7 @@ worker.onmessage = (e) => {
     console.info(msg);
     appState.eventNotifications && spawnEventEffect(msg);
   }
-};
+}
 
 function spawnEventEffect(msg) {
   // Convert the tile coordinates where it happened to screen space
@@ -127,8 +147,9 @@ function spawnEventEffect(msg) {
 }
 
 export function syncWorkerState() {
+  if (!isSimulationAuthority()) return;
   currentSyncId++;
-  worker.postMessage({
+  ensureWorker()?.postMessage({
     type: 'sync',
     syncId: currentSyncId,
     GRID_W, GRID_H,
@@ -149,4 +170,3 @@ export function syncWorkerState() {
     },
   });
 }
-
