@@ -32,7 +32,7 @@ import { saveMapToLocal, loadMapFromLocal, downloadMapFile, uploadMapFile } from
 import { updateViewMenuUI, activeCommands } from './menuSystem.js';
 import { syncWorkerState, currentSyncId, postTick } from './workerClient.js';
 
-import { seedDemo, brushApplyDelta, brushSmoothTouched, commitLevelSelection } from './terrainTools.js';
+import { seedDemo, brushApplyDelta, brushSmoothTouched, commitLevelSelection, flushTerrainSave } from './terrainTools.js';
 import { brushForest, placeCustomBuildingAtSelected, removeBuildingAtSelected } from './buildingTools.js';
 import { appendExtrusionPoint, finishExtrusion, editPathDown, editPathDrag, syncExtrusionUI } from './pathTools.js';
 import { placeCubeAt, removeCubeAt, editCubeDown, editCubeDrag } from './cubeTools.js';
@@ -402,7 +402,7 @@ const pointerUpCancel = (e) => {
     paintStroke.active = false;
     paintStroke.touched.clear();
   }
-  saveMapToLocal();
+  if (!flushTerrainSave()) saveMapToLocal();
   pointers.delete(e.pointerId); dragPrimaryId = pointers.size === 1 ? Array.from(pointers.keys())[0] : null;
 };
 canvas.addEventListener("pointerup", pointerUpCancel);

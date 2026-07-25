@@ -12,6 +12,28 @@ import {
 } from './renderer.js';
 import { saveMapToLocal } from './storage.js';
 
+// Brush stamps can arrive many times per second. Keep rendering responsive, but
+// defer worker sync and persistence until the user pauses (or pointer-up saves
+// the map immediately in main.js).
+const TERRAIN_SAVE_IDLE_MS = 750;
+let terrainSaveTimer = null;
+
+function scheduleTerrainSave() {
+  if (terrainSaveTimer) clearTimeout(terrainSaveTimer);
+  terrainSaveTimer = setTimeout(() => {
+    terrainSaveTimer = null;
+    saveMapToLocal();
+  }, TERRAIN_SAVE_IDLE_MS);
+}
+
+export function flushTerrainSave() {
+  if (!terrainSaveTimer) return false;
+  clearTimeout(terrainSaveTimer);
+  terrainSaveTimer = null;
+  saveMapToLocal();
+  return true;
+}
+
 export function seedDemo(config = null) {
   const cx = Math.floor(GRID_W * 0.5), cy = Math.floor(GRID_H * 0.5);
 
@@ -112,7 +134,7 @@ export function brushApplyDelta(cx, cy, delta) {
     }
   }
   uploadElevations();
-  saveMapToLocal();
+  scheduleTerrainSave();
 }
 
 export function brushSmoothTouched(cx, cy) {
@@ -157,7 +179,7 @@ export function brushSmoothTouched(cx, cy) {
   }
 
   uploadElevations();
-  saveMapToLocal();
+  scheduleTerrainSave();
 }
 
 export function commitLevelSelection() {
@@ -169,7 +191,7 @@ export function commitLevelSelection() {
     }
   }
   uploadElevations();
-  saveMapToLocal();
+  scheduleTerrainSave();
   levelSel.active = false;
   levelSel.pointerId = null;
 }
