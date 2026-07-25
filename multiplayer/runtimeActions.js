@@ -1,9 +1,9 @@
 import { AuthorityRole, getAuthorityRole } from '../authority.js';
 import { GRID_H, GRID_W, appState } from '../state.js';
-import { cleaveLemmingAt, placeLemmingAt } from '../lemmingTools.js';
 import { randomId } from './ids.js';
 
 let guestRequestHandler = null;
+let localActionHandlers = {};
 
 function hasOnlyKeys(value, keys) {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -38,9 +38,18 @@ export function applyRuntimeAction(input) {
   const action = validateRuntimeAction(input);
   if (action.type === 'simulation.setPlaying') appState.isPlaying = action.isPlaying;
   else if (action.type === 'simulation.setSpeed') appState.gameSpeed = action.gameSpeed;
-  else if (action.type === 'lemming.plop') placeLemmingAt(action.x, action.y);
-  else cleaveLemmingAt(action.x, action.y);
+  else if (action.type === 'lemming.plop') {
+    if (typeof localActionHandlers.plop !== 'function') throw new Error('Lemming actions are unavailable');
+    localActionHandlers.plop(action.x, action.y);
+  } else {
+    if (typeof localActionHandlers.cleave !== 'function') throw new Error('Lemming actions are unavailable');
+    localActionHandlers.cleave(action.x, action.y);
+  }
   return action;
+}
+
+export function setRuntimeActionHandlers(handlers = {}) {
+  localActionHandlers = { plop: handlers.plop, cleave: handlers.cleave };
 }
 
 export function setGuestRuntimeActionHandler(handler) {

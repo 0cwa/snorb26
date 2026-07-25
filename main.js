@@ -37,7 +37,8 @@ import { seedDemo, brushApplyDelta, brushSmoothTouched, commitLevelSelection, fl
 import { brushForest, placeBuildingAtSelected, placeCustomBuildingAtSelected, removeBuildingAtSelected } from './buildingTools.js';
 import { appendExtrusionPoint, finishExtrusion, editPathDown, editPathDrag, syncExtrusionUI } from './pathTools.js';
 import { placeCubeAt, removeCubeAt, editCubeDown, editCubeDrag } from './cubeTools.js';
-import { submitRuntimeAction } from './multiplayer/runtimeActions.js';
+import { placeLemmingAt, cleaveLemmingAt } from './lemmingTools.js';
+import { setRuntimeActionHandlers, submitRuntimeAction } from './multiplayer/runtimeActions.js';
 import { setTileInCenter, queryDown, getTileScreenPos } from './selectionTools.js';
 import './multiplayer/roomUI.js';
 import {
@@ -74,6 +75,8 @@ window.snorb = {
 };
 
 // Setup Map & DOM Elements
+setRuntimeActionHandlers({ plop: placeLemmingAt, cleave: cleaveLemmingAt });
+
 const hud = document.getElementById('hud');
 initWebGL(document.getElementById('scene'));
 const restoredLocalPreferences = loadLocalPreferences();

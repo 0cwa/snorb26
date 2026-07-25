@@ -31,6 +31,7 @@ import { MessageKind, decodeFrame, encodeFrame } from './multiplayer/protocol.js
 import { createRoomCapability, encodeInvite, parseInviteFragment } from './multiplayer/roomCapability.js';
 import { MultiplayerTransport } from './multiplayer/transport.js';
 import { createRtcConfig } from './multiplayer/webrtcRoom.js';
+import { setGuestRuntimeActionHandler, submitRuntimeAction, validateRuntimeAction } from './multiplayer/runtimeActions.js';
 import { getVisibleTileRect } from './terrainCulling.js';
 import { validateTerrainTextureSize } from './mapSizeValidation.js';
 
@@ -427,6 +428,31 @@ function runTests() {
     rejected = false;
     try { createRtcConfig({ turnUrls: ['turn:turn.example.test'], username: 'snorb' }); } catch { rejected = true; }
     assert(rejected, 'TURN config must require a password');
+  });
+
+  test('runtime actions are strictly validated and guests submit without mutation', () => {
+    const accepted = validateRuntimeAction({ type: 'simulation.setSpeed', gameSpeed: 2 });
+    assert(accepted.gameSpeed === 2, 'valid game speed should normalize');
+    let rejected = false;
+    try { validateRuntimeAction({ type: 'simulation.setSpeed', gameSpeed: 10 }); } catch { rejected = true; }
+    assert(rejected, 'out-of-range speed must reject');
+    rejected = false;
+    try { validateRuntimeAction({ type: 'lemming.plop', x: 0.5, y: 1 }); } catch { rejected = true; }
+    assert(rejected, 'fractional positions must reject');
+    rejected = false;
+    try { validateRuntimeAction({ type: 'simulation.setPlaying', isPlaying: true, state: {} }); } catch { rejected = true; }
+    assert(rejected, 'unknown action fields must reject');
+
+    const originalPlaying = appState.isPlaying;
+    let request = null;
+    setGuestRuntimeActionHandler(value => { request = value; });
+    setAuthorityRole(AuthorityRole.GUEST);
+    const result = submitRuntimeAction({ type: 'simulation.setPlaying', isPlaying: !originalPlaying });
+    assert(result.pending && !result.applied && result.requestId, 'guest action should be pending with a request id');
+    assert(request?.action?.isPlaying === !originalPlaying, 'guest should send a semantic action');
+    assert(appState.isPlaying === originalPlaying, 'guest action must not mutate local simulation state');
+    setGuestRuntimeActionHandler(null);
+    setAuthorityRole(AuthorityRole.SINGLE_PLAYER);
   });
 
   test('replays transport readiness when handlers attach after DataChannels open', () => {
