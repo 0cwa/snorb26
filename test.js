@@ -146,6 +146,43 @@ function runTests() {
     assert(rect.width === rect.maxX - rect.minX + 1 && rect.height === rect.maxY - rect.minY + 1, 'Dimensions must match inclusive bounds');
   });
 
+  test('contains every terrain tile whose raised or base vertex is on screen', () => {
+    // These cases exercise the same rotated isometric transform used by the
+    // terrain shader. A culling rectangle may be bigger than necessary, but
+    // it must never omit a tile that can contribute a visible vertex.
+    const cases = [
+      { panX: 0, panY: 0, zoom: 1, tilt: 1, rotation: 0 },
+      { panX: 140, panY: -95, zoom: 1.4, tilt: 0.55, rotation: Math.PI / 4 },
+      { panX: -240, panY: 180, zoom: 0.7, tilt: 1.35, rotation: Math.PI * 0.83 },
+      { panX: 340, panY: -420, zoom: 2.25, tilt: 0.4, rotation: -Math.PI * 0.37 },
+    ];
+    for (const camera of cases) {
+      const options = {
+        gridWidth: 48, gridHeight: 40, tileWidth: 64, tileHeight: 32,
+        camera, viewportWidth: 320, viewportHeight: 180,
+        maxTerrainElevation: 255, elevationStep: 9, marginTiles: 0,
+      };
+      const rect = getVisibleTileRect(options);
+      for (let y = 0; y < options.gridHeight; y++) {
+        for (let x = 0; x < options.gridWidth; x++) {
+          const isVisible = [0, 255].some((height) =>
+            [[0, 0], [1, 0], [0, 1], [1, 1]].some(([cornerX, cornerY]) => {
+              const point = worldPointForTileVertex(x + cornerX, y + cornerY, height, options);
+              return point.x >= camera.panX - options.viewportWidth / (2 * camera.zoom)
+                && point.x <= camera.panX + options.viewportWidth / (2 * camera.zoom)
+                && point.y >= camera.panY - options.viewportHeight / (2 * camera.zoom)
+                && point.y <= camera.panY + options.viewportHeight / (2 * camera.zoom);
+            }),
+          );
+          if (isVisible) {
+            assert(x >= rect.minX && x <= rect.maxX && y >= rect.minY && y <= rect.maxY,
+              `Visible tile was culled: ${JSON.stringify({ x, y, rect, camera })}`);
+          }
+        }
+      }
+    }
+  });
+
   console.log(`\nTests finished. Passed: ${passed}, Failed: ${failed}`);
   if (failed) process.exitCode = 1;
 }
@@ -158,6 +195,19 @@ function tileForWorldPoint(worldX, worldY, options) {
   return {
     x: Math.floor(rx * cos + ry * sin + gridWidth * 0.5),
     y: Math.floor(-rx * sin + ry * cos + gridHeight * 0.5),
+  };
+}
+
+function worldPointForTileVertex(x, y, height, options) {
+  const { camera, gridWidth, gridHeight, tileWidth, tileHeight, elevationStep } = options;
+  const pX = x - gridWidth * 0.5;
+  const pY = y - gridHeight * 0.5;
+  const cos = Math.cos(camera.rotation), sin = Math.sin(camera.rotation);
+  const rX = pX * cos - pY * sin;
+  const rY = pX * sin + pY * cos;
+  return {
+    x: (rX - rY) * (tileWidth * 0.5),
+    y: (rX + rY) * (tileHeight * camera.tilt * 0.5) - height * elevationStep,
   };
 }
 
