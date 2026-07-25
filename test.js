@@ -26,6 +26,7 @@ import {
   setAuthorityRole,
 } from './authority.js';
 import { applySemanticCommand, applySemanticCommandsAtomically, validateSemanticCommand } from './multiplayer/semanticCommands.js';
+import { decodeSimulationSnapshot, encodeSimulationSnapshot } from './multiplayer/snapshotCodec.js';
 
 import { getVisibleTileRect } from './terrainCulling.js';
 import { validateTerrainTextureSize } from './mapSizeValidation.js';
@@ -369,6 +370,24 @@ function runTests() {
     assert(context.buildingAt[9] === 2, 'building should be placed');
     applySemanticCommand(validateSemanticCommand({ type: 'building.remove', id: 'building-stable' }, context), context);
     assert(context.buildingAt[9] === 0, 'stable ID should remove the building');
+  });
+
+  test('binary simulation snapshots round-trip typed terrain data', () => {
+    const cells = 16 * 16;
+    const snapshot = {
+      hostEpoch: 3, sequence: 9, durableSequence: 4, width: 16, height: 16,
+      gameTime: 12.5, waterLevel: 86, simulation: { isPlaying: true },
+      elevations: Uint8Array.from({ length: cells }, (_, index) => index % 256),
+      buildingAt: new Uint8Array(cells), durableBuildingIds: [],
+      customBuildingRegistry: [], cubes: [], extrusions: [], lemmings: [],
+    };
+    const bytes = encodeSimulationSnapshot(snapshot);
+    const decoded = decodeSimulationSnapshot(bytes);
+    assert(bytes instanceof Uint8Array, 'snapshot transport should be binary');
+    assert(decoded.sequence === 9 && decoded.elevations[255] === 255, 'snapshot should round-trip');
+    let rejected = false;
+    try { decodeSimulationSnapshot(bytes.subarray(0, bytes.length - 1)); } catch { rejected = true; }
+    assert(rejected, 'truncated snapshot must reject');
   });
 
   test('semantic batches reject atomically', () => {

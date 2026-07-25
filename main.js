@@ -31,6 +31,7 @@ import {openQueryDialog} from './queryDialog.js';
 import { saveMapToLocal, saveLocalPreferences, loadLocalPreferences, loadMapFromLocal, downloadMapFile, uploadMapFile } from './storage.js';
 import { updateViewMenuUI, activeCommands } from './menuSystem.js';
 import { syncWorkerState, currentSyncId, postTick } from './workerClient.js';
+import { isSimulationAuthority } from './authority.js';
 
 import { seedDemo, brushApplyDelta, brushSmoothTouched, commitLevelSelection, flushTerrainSave } from './terrainTools.js';
 import { brushForest, placeBuildingAtSelected, placeCustomBuildingAtSelected, removeBuildingAtSelected } from './buildingTools.js';
@@ -476,7 +477,7 @@ function tick(now) {
   const dtReal = lastTime ? (now - lastTime) : 0;
   lastTime = now;
 
-  if (appState.isPlaying) {
+  if (appState.isPlaying && isSimulationAuthority()) {
     appState.gameTime += dtReal * appState.gameSpeed;
     const dtLemming = (dtReal / 1000) * appState.gameSpeed;
     postTick(dtLemming);
