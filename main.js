@@ -33,11 +33,16 @@ import { updateViewMenuUI, activeCommands } from './menuSystem.js';
 import { syncWorkerState, currentSyncId, postTick } from './workerClient.js';
 
 import { seedDemo, brushApplyDelta, brushSmoothTouched, commitLevelSelection, flushTerrainSave } from './terrainTools.js';
-import { brushForest, placeCustomBuildingAtSelected, removeBuildingAtSelected } from './buildingTools.js';
+import { brushForest, placeBuildingAtSelected, placeCustomBuildingAtSelected, removeBuildingAtSelected } from './buildingTools.js';
 import { appendExtrusionPoint, finishExtrusion, editPathDown, editPathDrag, syncExtrusionUI } from './pathTools.js';
 import { placeCubeAt, removeCubeAt, editCubeDown, editCubeDrag } from './cubeTools.js';
 import { placeLemmingAt, cleaveLemmingAt } from './lemmingTools.js';
 import { setTileInCenter, queryDown, getTileScreenPos } from './selectionTools.js';
+import {
+  beginSemanticTransaction,
+  commitSemanticTransaction,
+  initializeCommandBus,
+} from './multiplayer/commandBus.js';
 
 import * as stateAPI from './state.js';
 import * as rendererAPI from './renderer.js';
@@ -89,6 +94,7 @@ if (!loadMapFromLocal()) {
 }
 uploadElevations();
 updateViewMenuUI();
+initializeCommandBus().catch(error => console.error('Could not initialize semantic edit history', error));
 syncWorkerState();
 
 // Initial Camera 
@@ -185,7 +191,9 @@ canvas.addEventListener("pointerdown", (e) => {
   orbitDragX = 0;
 
   requestPick(sx, sy, () => {
-    if (!selected.has) return;
+    // Picking resolves on a later draw. Ignore a click whose pointer was
+    // already released so it cannot strand a semantic transaction.
+    if (!pointers.has(e.pointerId) || !selected.has) return;
     performTool(e);
   });
 
@@ -222,6 +230,8 @@ canvas.addEventListener("pointerdown", (e) => {
 export function performTool(e) {
   // If called by keyboard (Enter), 'e' will be undefined.
   const hasPointer = e && e.pointerId !== undefined;
+  const semanticStroke = ['demolish', 'forest', 'raise', 'lower', 'smooth'].includes(appState.toolMode);
+  if (hasPointer && semanticStroke && !paintStroke.active) beginSemanticTransaction(appState.toolMode);
 
   if (appState.toolMode === 'build') {
     placeBuildingAtSelected();
@@ -428,9 +438,9 @@ const pointerUpCancel = (e) => {
     if (appState.toolMode === 'edit-path') {
       appState.editPathNodeIndex = -1;
     }
-    brushSmoothTouched();
     paintStroke.active = false;
     paintStroke.touched.clear();
+    commitSemanticTransaction();
   }
   if (!flushTerrainSave()) saveMapToLocal();
   pointers.delete(e.pointerId); dragPrimaryId = pointers.size === 1 ? Array.from(pointers.keys())[0] : null;

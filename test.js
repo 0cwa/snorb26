@@ -1,9 +1,11 @@
 import {
   appState,
   brush,
+  buildingAt,
   camera,
   compileMath,
   deserializeMap,
+  durableBuildingIds,
   LOCAL_UI_STATE_KEYS,
   paintStroke,
   selected,
@@ -23,6 +25,7 @@ import {
   isSimulationAuthority,
   setAuthorityRole,
 } from './authority.js';
+import { applySemanticCommand, applySemanticCommandsAtomically, validateSemanticCommand } from './multiplayer/semanticCommands.js';
 
 import { getVisibleTileRect } from './terrainCulling.js';
 import { validateTerrainTextureSize } from './mapSizeValidation.js';
@@ -288,6 +291,19 @@ function runTests() {
     assert(!paintStroke.active && paintStroke.touched.size === 0, 'paint stroke should clear');
   });
 
+  test('map payload preserves stable building IDs', () => {
+    const original = serializeMap();
+    buildingAt[0] = 2;
+    durableBuildingIds.set(0, 'building-persistent');
+    const payload = serializeMap();
+    buildingAt[0] = 0;
+    durableBuildingIds.clear();
+    assert(deserializeMap(payload), 'map with stable building ID should load');
+    assert(buildingAt[0] === 2, 'building should survive map round-trip');
+    assert(durableBuildingIds.get(0) === 'building-persistent', 'building ID should survive map round-trip');
+    assert(deserializeMap(original), 'original map should restore');
+  });
+
   test('local preferences round-trip independently', () => {
     const encoded = encodeLocalPreferences(captureLocalPreferences());
     const decoded = decodeLocalPreferences(encoded);
@@ -313,6 +329,67 @@ function runTests() {
     assert(isSimulationAuthority(), 'single-player remains authoritative');
   });
 
+  test('validates and applies semantic terrain commands without full arrays', () => {
+    const context = {
+      width: 8,
+      height: 8,
+      elevations: new Uint8Array(64),
+      buildingAt: new Uint8Array(64),
+      buildingsById: new Map(),
+      buildingIdsByCell: new Map(),
+      durableBuildingIds: new Map(),
+      customBuildingRegistry: [],
+      builtInBuildingTypes: 4,
+    };
+    const command = validateSemanticCommand({ type: 'terrain.raise', x: 4, y: 4, radius: 2, delta: 1 }, context);
+    const dirty = applySemanticCommand(command, context);
+    assert(dirty.terrain, 'terrain should be dirty');
+    assert(context.elevations[4 * 8 + 4] === 1, 'terrain center should rise');
+    let rejected = false;
+    try {
+      validateSemanticCommand({ ...command, elevations: new Uint8Array(64) }, context);
+    } catch { rejected = true; }
+    assert(rejected, 'full terrain arrays must be rejected');
+  });
+
+  test('building semantic commands use stable IDs', () => {
+    const context = {
+      width: 4,
+      height: 4,
+      elevations: new Uint8Array(16),
+      buildingAt: new Uint8Array(16),
+      buildingsById: new Map(),
+      buildingIdsByCell: new Map(),
+      durableBuildingIds: new Map(),
+      customBuildingRegistry: [],
+      builtInBuildingTypes: 4,
+    };
+    const place = validateSemanticCommand({ type: 'building.place', x: 1, y: 2, buildingType: 2, id: 'building-stable' }, context);
+    applySemanticCommand(place, context);
+    assert(context.buildingAt[9] === 2, 'building should be placed');
+    applySemanticCommand(validateSemanticCommand({ type: 'building.remove', id: 'building-stable' }, context), context);
+    assert(context.buildingAt[9] === 0, 'stable ID should remove the building');
+  });
+
+  test('semantic batches reject atomically', () => {
+    const context = {
+      width: 4, height: 4,
+      elevations: new Uint8Array(16), buildingAt: new Uint8Array(16),
+      buildingsById: new Map([['duplicate', { x: 0, y: 0, buildingType: 1 }]]),
+      buildingIdsByCell: new Map([[0, 'duplicate']]),
+      durableBuildingIds: new Map([[0, 'duplicate']]),
+      customBuildingRegistry: [], builtInBuildingTypes: 4,
+    };
+    const commands = [
+      validateSemanticCommand({ type: 'terrain.raise', x: 1, y: 1, radius: 1, delta: 1 }, context),
+      validateSemanticCommand({ type: 'building.place', x: 2, y: 2, buildingType: 5, id: 'duplicate', textureUrl: 'https://example.test/tree.png' }, context),
+    ];
+    let rejected = false;
+    try { applySemanticCommandsAtomically(commands, context); } catch { rejected = true; }
+    assert(rejected, 'conflicting batch should reject');
+    assert(context.elevations.every(value => value === 0), 'terrain must roll back');
+    assert(context.customBuildingRegistry.length === 0, 'registry must roll back');
+  });
 
   console.log(`\nTests finished. Passed: ${passed}, Failed: ${failed}`);
   if (failed) process.exitCode = 1;

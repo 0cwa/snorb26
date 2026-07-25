@@ -1,6 +1,6 @@
 # Multiplayer MVP architecture
 
-Implementation is intentionally phased. Phase 1 establishes ownership boundaries only; it does not include Loro or networking.
+Implementation is intentionally phased. Phase 1 established ownership boundaries. Phase 2 adds a browser-local Loro semantic history; networking is still disabled.
 
 ## Authority
 
@@ -19,12 +19,22 @@ The room creator is the fixed simulation host. Single-player follows the same au
 
 `localState.js` owns the separate local-preference codec and one-time migration from an existing browser's version 2 local save. Uploaded files never use that migration path.
 
+## Loro semantic history
+
+`multiplayer/loroCommandLog.js` owns a vendored Loro 1.13.8 document with two roots:
+
+- `metadata`: schema version only.
+- `commands`: append-only JSON strings containing canonical semantic command records.
+
+Current durable commands are `terrain.raise`, `terrain.smooth`, `terrain.level`, `building.place`, and `building.remove`. Brush gestures append all samples in one Loro commit. Buildings use stable IDs; random forest choices are resolved into explicit place commands before logging.
+
+The command schema rejects unknown fields, including terrain/building arrays. Loro never contains camera/UI state, worker state, lemmings, simulation snapshots, or full map arrays. The binary Loro snapshot is persisted locally in IndexedDB to retain merge history; it is not remote map storage.
+
 ## Deferred phases
 
-1. Loro semantic command log for durable human edits.
-2. Loopback host snapshots and guest rendering without guest simulation.
-3. Binary transport abstraction.
-4. WebRTC DataChannels and tracker-based signaling.
-5. Room UI, invite capability, validation, and safety limits.
+3. Loopback host snapshots and guest rendering without guest simulation.
+4. Binary transport abstraction.
+5. WebRTC DataChannels and tracker-based signaling.
+6. Room UI, invite capability, validation, and safety limits.
 
 Host migration, deterministic distributed simulation, remote map storage, incremental snapshots, optimistic guest edits, TURN provisioning, and alternate transports remain out of scope for the MVP.

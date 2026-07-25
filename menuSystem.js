@@ -40,6 +40,7 @@ import { syncExtrusionUI, finishExtrusion } from './pathTools.js';
 import { seedDemo } from './terrainTools.js';
 import { saveMapToLocal, downloadMapFile, uploadMapFile } from './storage.js';
 import { orbitPivot, setOrbitPivot, performTool } from './main.js';
+import { initializeCommandBus, rebuildBuildingIdIndex } from './multiplayer/commandBus.js';
 
 let activeMenu = null;
 let dragStartedOnTrigger = false;
@@ -537,6 +538,8 @@ document.querySelector('#newMapDialog form')?.addEventListener('submit', (e) => 
 
   // Clear map state
   buildingAt.fill(0);
+  rebuildBuildingIdIndex();
+  initializeCommandBus().catch(error => console.error('Could not open map command history', error));
   mapSettings.waterLevel = 86;
   const wEl = document.getElementById('waterLevel');
   if (wEl) wEl.value = mapSettings.waterLevel;
