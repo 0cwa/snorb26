@@ -118,6 +118,8 @@ let dragPrimaryId = null, pinchStartDist = 0, pinchStartZoom = 1, pinchStartPan 
 export let orbitPivot = null;
 export function setOrbitPivot(val) { orbitPivot = val }
 let orbitDragX = 0;
+let lastHoverPickTime = 0;
+const HOVER_PICK_INTERVAL_MS = 50;
 
 canvas.addEventListener("contextmenu", e => e.preventDefault());
 
@@ -289,7 +291,14 @@ export function performTool(e) {
 
 canvas.addEventListener("pointermove", (e) => {
   const sx = e.clientX * (canvas.width / innerWidth), sy = e.clientY * (canvas.height / innerHeight);
-  if (e.pointerType === "mouse" && e.buttons === 0) { requestPick(sx, sy); return; }
+  if (e.pointerType === "mouse" && e.buttons === 0) {
+    const now = performance.now();
+    if (now - lastHoverPickTime >= HOVER_PICK_INTERVAL_MS) {
+      lastHoverPickTime = now;
+      requestPick(sx, sy);
+    }
+    return;
+  }
   if (!pointers.has(e.pointerId)) return;
 
   const prev = pointers.get(e.pointerId);
