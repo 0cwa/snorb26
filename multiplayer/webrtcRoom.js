@@ -160,7 +160,8 @@ export async function hostWebRtcRoom(capability, { onTransport, onWarning, onDia
       if (activeNegotiations >= 8 || recentOffers.length >= 20) return onWarning?.('Tracker offer limit exceeded');
       recentOffers.push(now); activeNegotiations++;
       try {
-        const { transport, answer } = await acceptHostWebRtcOffer(offer, rtcConfig, { onPeerConnection: pc => observeIceDiagnostics(pc, onDiagnostic) });
+        const { transport, answer, iceGatheringComplete } = await acceptHostWebRtcOffer(offer, rtcConfig, { onPeerConnection: pc => observeIceDiagnostics(pc, onDiagnostic) });
+        if (!iceGatheringComplete) onWarning?.('ICE gathering timed out; sending answer with gathered candidates');
         tracker.answer({ answer, offerId, toPeerId: peerId });
         onTransport?.(transport, peerId);
       } catch (error) { onWarning?.(error.message); }
@@ -176,7 +177,8 @@ export async function joinWebRtcRoom(capability, { onTransport, onWarning, onDia
   if (!url) throw new Error('A WSS tracker URL is required');
   const infoHash = await deriveInfoHash(capability);
   const peerId = crypto.getRandomValues(new Uint8Array(20));
-  const { transport, offer } = await createGuestWebRtcOffer(rtcConfig, { onPeerConnection: pc => observeIceDiagnostics(pc, onDiagnostic) });
+  const { transport, offer, iceGatheringComplete } = await createGuestWebRtcOffer(rtcConfig, { onPeerConnection: pc => observeIceDiagnostics(pc, onDiagnostic) });
+  if (!iceGatheringComplete) onWarning?.('ICE gathering timed out; sending offer with gathered candidates');
   const tracker = new WebTorrentTrackerClient({
     url, infoHash, peerId, onWarning,
     onAnswer: async ({ answer, token }) => {

@@ -7,10 +7,10 @@ const CHUNK_DATA = 16 * 1024;
 let messageId = 0;
 
 function waitIceComplete(pc, timeout = 30_000) {
-  if (pc.iceGatheringState === 'complete') return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { cleanup(); reject(new Error('ICE gathering timed out')); }, timeout);
-    const change = () => { if (pc.iceGatheringState === 'complete') { cleanup(); resolve(); } };
+  if (pc.iceGatheringState === 'complete') return Promise.resolve(true);
+  return new Promise(resolve => {
+    const timer = setTimeout(() => { cleanup(); resolve(false); }, timeout);
+    const change = () => { if (pc.iceGatheringState === 'complete') { cleanup(); resolve(true); } };
     const cleanup = () => { clearTimeout(timer); pc.removeEventListener('icegatheringstatechange', change); };
     pc.addEventListener('icegatheringstatechange', change);
   });
@@ -96,8 +96,9 @@ export async function createGuestWebRtcOffer(rtcConfig = {}, { onPeerConnection 
   const pc = new RTCPeerConnection(rtcConfig), transport = new WebRtcTransport(pc);
   onPeerConnection?.(pc);
   transport.attachCreatedChannels();
-  await pc.setLocalDescription(await pc.createOffer()); await waitIceComplete(pc);
-  return { transport, offer: pc.localDescription };
+  await pc.setLocalDescription(await pc.createOffer());
+  const iceGatheringComplete = await waitIceComplete(pc);
+  return { transport, offer: pc.localDescription, iceGatheringComplete };
 }
 
 export async function applyGuestWebRtcAnswer(transport, answer) {
@@ -109,6 +110,7 @@ export async function acceptHostWebRtcOffer(offer, rtcConfig = {}, { onPeerConne
   if (offer?.type !== 'offer' || typeof offer.sdp !== 'string') throw new TypeError('Invalid WebRTC offer');
   const pc = new RTCPeerConnection(rtcConfig), transport = new WebRtcTransport(pc);
   onPeerConnection?.(pc);
-  await pc.setRemoteDescription(offer); await pc.setLocalDescription(await pc.createAnswer()); await waitIceComplete(pc);
-  return { transport, answer: pc.localDescription };
+  await pc.setRemoteDescription(offer); await pc.setLocalDescription(await pc.createAnswer());
+  const iceGatheringComplete = await waitIceComplete(pc);
+  return { transport, answer: pc.localDescription, iceGatheringComplete };
 }
