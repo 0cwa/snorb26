@@ -1,4 +1,5 @@
 import { compileMath } from './state.js'; //
+import { getVisibleTileRect } from './terrainCulling.js';
 
 function assert(condition, message) {
   if (!condition) {
@@ -97,7 +98,67 @@ function runTests() {
     assert(fn === null, 'Should block arbitrary variables');
   });
 
+  test('culls a centered, unrotated viewport to a small tile rectangle', () => {
+    const rect = getVisibleTileRect({
+      gridWidth: 100, gridHeight: 100, tileWidth: 64, tileHeight: 32,
+      camera: { panX: 0, panY: 0, zoom: 1, tilt: 1, rotation: 0 },
+      viewportWidth: 128, viewportHeight: 64,
+      maxTerrainElevation: 0, elevationStep: 6, marginTiles: 0,
+    });
+    assert(rect.minX === 47 && rect.maxX === 52, `Unexpected X bounds: ${JSON.stringify(rect)}`);
+    assert(rect.minY === 47 && rect.maxY === 52, `Unexpected Y bounds: ${JSON.stringify(rect)}`);
+    assert(rect.width === 6 && rect.height === 6, 'Bounds should be inclusive');
+  });
+
+  test('includes every map edge when a zoomed-out viewport covers the map', () => {
+    const rect = getVisibleTileRect({
+      gridWidth: 256, gridHeight: 256, tileWidth: 64, tileHeight: 32,
+      camera: { panX: 0, panY: 0, zoom: 0.01, tilt: 1, rotation: Math.PI / 4 },
+      viewportWidth: 800, viewportHeight: 600,
+      maxTerrainElevation: 255, elevationStep: 6,
+    });
+    assert(rect.minX === 0 && rect.minY === 0, `Expected top-left map edge: ${JSON.stringify(rect)}`);
+    assert(rect.maxX === 255 && rect.maxY === 255, `Expected bottom-right map edge: ${JSON.stringify(rect)}`);
+  });
+
+  test('accounts for rotation and elevation displacement conservatively', () => {
+    const options = {
+      gridWidth: 256, gridHeight: 256, tileWidth: 64, tileHeight: 32,
+      camera: { panX: 0, panY: -300, zoom: 1, tilt: 0.5, rotation: Math.PI / 3 },
+      viewportWidth: 128, viewportHeight: 64,
+      maxTerrainElevation: 100, elevationStep: 12, marginTiles: 0,
+    };
+    const rect = getVisibleTileRect(options);
+    // This vertex is raised into the viewport from 1,200 world pixels below it.
+    const elevatedTile = tileForWorldPoint(0, 900, options);
+    assert(elevatedTile.x >= rect.minX && elevatedTile.x <= rect.maxX, `Elevated tile X was culled: ${JSON.stringify({ rect, elevatedTile })}`);
+    assert(elevatedTile.y >= rect.minY && elevatedTile.y <= rect.maxY, `Elevated tile Y was culled: ${JSON.stringify({ rect, elevatedTile })}`);
+  });
+
+  test('clamps bounds and reports valid dimensions at map edges', () => {
+    const rect = getVisibleTileRect({
+      gridWidth: 10, gridHeight: 8, tileWidth: 64, tileHeight: 32,
+      camera: { panX: -100000, panY: -100000, zoom: 1, tilt: 1, rotation: 0 },
+      viewportWidth: 32, viewportHeight: 32,
+      maxTerrainElevation: 0, elevationStep: 6,
+    });
+    assert(rect.minX >= 0 && rect.maxX < 10 && rect.minY >= 0 && rect.maxY < 8, `Out-of-grid bounds: ${JSON.stringify(rect)}`);
+    assert(rect.width === rect.maxX - rect.minX + 1 && rect.height === rect.maxY - rect.minY + 1, 'Dimensions must match inclusive bounds');
+  });
+
   console.log(`\nTests finished. Passed: ${passed}, Failed: ${failed}`);
+  if (failed) process.exitCode = 1;
+}
+
+function tileForWorldPoint(worldX, worldY, options) {
+  const { camera, gridWidth, gridHeight, tileWidth, tileHeight } = options;
+  const rx = worldX / tileWidth + worldY / (tileHeight * camera.tilt);
+  const ry = -worldX / tileWidth + worldY / (tileHeight * camera.tilt);
+  const cos = Math.cos(camera.rotation), sin = Math.sin(camera.rotation);
+  return {
+    x: Math.floor(rx * cos + ry * sin + gridWidth * 0.5),
+    y: Math.floor(-rx * sin + ry * cos + gridHeight * 0.5),
+  };
 }
 
 runTests();
