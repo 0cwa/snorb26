@@ -453,7 +453,8 @@ function runTests() {
     const stop = observeIceDiagnostics(fakePc, event => events.push(event));
     handlers.get('icecandidateerror')({ errorCode: 701, errorText: 'bad\nturn response' });
     assert(events.some(event => event.type === 'ice-gathering-state' && event.state === 'gathering'), 'initial ICE state should be reported');
-    assert(events.at(-1).type === 'ice-candidate-error' && events.at(-1).message === 'bad turn response', 'candidate errors should be sanitized');
+    assert(events.at(-1).type === 'ice-candidate-error' && events.at(-1).code === 701 && events.at(-1).category === 'server-unreachable', 'candidate errors should use only a safe category');
+    assert(!JSON.stringify(events.at(-1)).includes('bad turn response'), 'candidate errors must omit browser-supplied text');
     stop();
   });
     const accepted = validateRuntimeAction({ type: 'simulation.setSpeed', gameSpeed: 2 });

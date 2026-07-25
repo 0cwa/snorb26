@@ -143,9 +143,11 @@ testTurnButton.addEventListener('click', async () => {
     turnTestResult.textContent = 'Testing TURN relay…';
     const result = await testTurnConfiguration(rtcConfigFromForm());
     turnTestResult.textContent = result.relayCandidate
-      ? 'TURN relay candidate gathered.'
-      : `${result.timedOut ? 'No relay candidate before timeout' : 'No relay candidate gathered'} (${result.gatheringState}).${result.candidateError ? ` ${result.candidateError}` : ''}`;
-  } catch (error) { turnTestResult.textContent = error.message; }
+      ? 'Relay candidate gathered. This verifies local TURN allocation only, not peer connectivity.'
+      : result.candidateError === 'server-unreachable'
+        ? 'TURN server could not be reached.'
+        : 'No relay candidate gathered. Check the TURN URL, credentials, and firewall policy.';
+  } catch { turnTestResult.textContent = 'TURN test could not start. Check the local TURN configuration.'; }
   finally { testTurnButton.disabled = false; }
 });
 

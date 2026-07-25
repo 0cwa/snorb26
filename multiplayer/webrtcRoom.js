@@ -6,8 +6,10 @@ const MAX_TURN_URL_LENGTH = 256;
 const MAX_TURN_USERNAME_LENGTH = 256;
 const MAX_TURN_CREDENTIAL_LENGTH = 1024;
 
-function cleanDiagnosticText(value, maxLength = 200) {
-  return String(value || '').replace(/[\r\n\t]/g, ' ').slice(0, maxLength);
+const SAFE_CANDIDATE_TYPES = new Set(['host', 'srflx', 'prflx', 'relay']);
+const SAFE_PROTOCOLS = new Set(['udp', 'tcp', 'tls']);
+function iceCandidateErrorCategory(errorCode) {
+  return errorCode === 701 ? 'server-unreachable' : Number.isFinite(errorCode) ? 'server-error' : 'unknown';
 }
 
 function validTurnUrl(value) {
@@ -36,9 +38,9 @@ function validTurnHostPort(value) {
 function candidateSummary(candidate) {
   if (!candidate) return null;
   const summary = {};
-  if (typeof candidate.candidateType === 'string') summary.type = candidate.candidateType;
-  if (typeof candidate.protocol === 'string') summary.protocol = candidate.protocol;
-  if (typeof candidate.relayProtocol === 'string') summary.relayProtocol = candidate.relayProtocol;
+  if (SAFE_CANDIDATE_TYPES.has(candidate.candidateType)) summary.type = candidate.candidateType;
+  if (SAFE_PROTOCOLS.has(candidate.protocol)) summary.protocol = candidate.protocol;
+  if (SAFE_PROTOCOLS.has(candidate.relayProtocol)) summary.relayProtocol = candidate.relayProtocol;
   return Object.keys(summary).length ? summary : null;
 }
 
@@ -79,7 +81,10 @@ export function observeIceDiagnostics(pc, onDiagnostic) {
     emit({ type: 'peer-connection-state', state });
     if (state === 'failed') reportFailureStats();
   };
-  const candidateError = event => emit({ type: 'ice-candidate-error', code: Number.isFinite(event.errorCode) ? event.errorCode : 0, message: cleanDiagnosticText(event.errorText || 'ICE candidate error') });
+  const candidateError = event => {
+    const code = Number.isFinite(event.errorCode) ? event.errorCode : 0;
+    emit({ type: 'ice-candidate-error', code, category: iceCandidateErrorCategory(code) });
+  };
   pc.addEventListener('icegatheringstatechange', gathering);
   pc.addEventListener('iceconnectionstatechange', iceConnection);
   pc.addEventListener('connectionstatechange', connection);
@@ -105,6 +110,7 @@ export function createRtcConfig({ turnUrls = [], username = '', credential = '' 
 }
 
 export async function testTurnConfiguration(rtcConfig, { timeoutMs = 10_000 } = {}) {
+  pc.createDataChannel('snorb-turn-probe');
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 30_000) throw new RangeError('TURN test timeout must be between 1 and 30 seconds');
   if (!Array.isArray(rtcConfig?.iceServers) || rtcConfig.iceServers.length < 2) throw new Error('Configure at least one TURN server before testing');
   const pc = new RTCPeerConnection(rtcConfig);
@@ -122,10 +128,11 @@ export async function testTurnConfiguration(rtcConfig, { timeoutMs = 10_000 } = 
         pc.removeEventListener('icegatheringstatechange', gatheringComplete);
         resolve(result);
       };
-      const candidate = event => {
-        if (/\btyp relay\b/.test(event.candidate?.candidate || '')) relayCandidate = true;
+      const candidate = event => { if (event.candidate?.type === 'relay') relayCandidate = true; };
+      const candidateFailure = event => {
+        const code = Number.isFinite(event.errorCode) ? event.errorCode : 0;
+        candidateError = iceCandidateErrorCategory(code);
       };
-      const candidateFailure = event => { candidateError = cleanDiagnosticText(event.errorText || 'ICE candidate error'); };
       const gatheringComplete = () => {
         if (pc.iceGatheringState === 'complete') finish({ relayCandidate, gatheringState: 'complete', timedOut: false, candidateError });
       };
