@@ -144,7 +144,7 @@ testTurnButton.addEventListener('click', async () => {
     const result = await testTurnConfiguration(rtcConfigFromForm());
     turnTestResult.textContent = result.relayCandidate
       ? 'TURN relay candidate gathered.'
-      : result.timedOut ? 'No relay candidate before timeout.' : 'No relay candidate gathered.';
+      : `${result.timedOut ? 'No relay candidate before timeout' : 'No relay candidate gathered'} (${result.gatheringState}).${result.candidateError ? ` ${result.candidateError}` : ''}`;
   } catch (error) { turnTestResult.textContent = error.message; }
   finally { testTurnButton.disabled = false; }
 });
