@@ -42,9 +42,14 @@ Phase 4 defines `MultiplayerTransport` with reliable and transient binary channe
 
 Every message uses a validated binary `SNRB` frame carrying protocol version, kind, room ID, host epoch, sequence, and byte payload. Reliable command/Loro payloads and transient snapshots have separate limits. Text transport payloads are rejected.
 
+## WebRTC and tracker discovery
+
+Phase 5 adds native `RTCPeerConnection` transport with reliable ordered command/Loro traffic and unordered, zero-retransmit snapshot traffic. Large binary messages are bounded and split into 16 KiB DataChannel chunks with all-or-nothing reassembly and expiry. Backpressure drops stale transient snapshots.
+
+Room capabilities use 128-bit room IDs and 256-bit secrets in the URL fragment only. The tracker swarm `info_hash` is a domain-separated SHA-256 derivation, so neither the static host nor tracker receives the secret. `trackerClient.js` implements WebTorrent-compatible WSS announce offer/answer signaling directly; it does not torrent map data. No TURN or host migration is provided.
+
 ## Deferred phases
 
-5. WebRTC DataChannels and tracker-based signaling.
 6. Room UI, invite capability, validation, and safety limits.
 
 Host migration, deterministic distributed simulation, remote map storage, incremental snapshots, optimistic guest edits, TURN provisioning, and alternate transports remain out of scope for the MVP.

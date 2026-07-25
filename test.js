@@ -28,6 +28,7 @@ import {
 import { applySemanticCommand, applySemanticCommandsAtomically, validateSemanticCommand } from './multiplayer/semanticCommands.js';
 import { decodeSimulationSnapshot, encodeSimulationSnapshot } from './multiplayer/snapshotCodec.js';
 import { MessageKind, decodeFrame, encodeFrame } from './multiplayer/protocol.js';
+import { createRoomCapability, encodeInvite, parseInviteFragment } from './multiplayer/roomCapability.js';
 
 function assert(condition, message) {
   if (!condition) {
@@ -282,6 +283,15 @@ function runTests() {
     let rejected = false;
     try { decodeFrame(frame.subarray(0, frame.length - 1)); } catch { rejected = true; }
     assert(rejected, 'truncated frame should reject');
+  });
+
+  test('room secret stays in a round-trippable URL fragment', () => {
+    const capability = createRoomCapability(['wss://tracker.example.test/announce']);
+    const invite = new URL(encodeInvite(capability, 'https://snorb.example/app'));
+    assert(invite.search === '', 'invite must not put secrets in query parameters');
+    const parsed = parseInviteFragment(invite.hash, { clear: false });
+    assert(parsed.secret.length === 32 && parsed.roomId.length === 16, 'capability should round-trip');
+    assert(parsed.trackerUrls[0].startsWith('wss://'), 'tracker should round-trip');
   });
 
   test('semantic batches reject atomically', () => {
