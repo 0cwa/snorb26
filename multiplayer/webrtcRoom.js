@@ -4,6 +4,18 @@ import { acceptHostWebRtcOffer, applyGuestWebRtcAnswer, createGuestWebRtcOffer }
 
 const DEFAULT_RTC_CONFIG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
+export function createRtcConfig({ turnUrls = [], username = '', credential = '' } = {}) {
+  const urls = Array.isArray(turnUrls) ? turnUrls.map(value => String(value).trim()).filter(Boolean) : [];
+  if (urls.length === 0) return { iceServers: [...DEFAULT_RTC_CONFIG.iceServers] };
+  if (!username || !credential) throw new Error('TURN username and password are required when a TURN URL is configured');
+  for (const value of urls) {
+    let url;
+    try { url = new URL(value); } catch { throw new Error('Invalid TURN URL'); }
+    if (!['turn:', 'turns:'].includes(url.protocol) || !url.pathname) throw new Error('TURN URLs must use turn: or turns:');
+  }
+  return { iceServers: [...DEFAULT_RTC_CONFIG.iceServers, { urls, username, credential }] };
+}
+
 export async function hostWebRtcRoom(capability, { onTransport, onWarning, rtcConfig = DEFAULT_RTC_CONFIG } = {}) {
   const url = capability.trackerUrls?.[0];
   if (!url) throw new Error('A WSS tracker URL is required');

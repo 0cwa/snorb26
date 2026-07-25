@@ -45,13 +45,13 @@ class RoomSession extends EventTarget {
     this.allowGuestEdits = true; this.generation = 0;
   }
   #status(detail) { this.dispatchEvent(new CustomEvent('status', { detail: { role: this.role, peers: this.peers.size, ...detail } })); }
-  async host(capability) {
+  async host(capability, { rtcConfig } = {}) {
     await this.leave(); const generation = ++this.generation; this.capability = capability; this.roomId = roomIdString(capability);
     this.hostEpoch = crypto.getRandomValues(new Uint32Array(1))[0] || 1;
     encodeSimulationSnapshot(captureSimulationSnapshot({ hostEpoch: this.hostEpoch, sequence: 1 }));
     this.role = AuthorityRole.HOST; setAuthorityRole(this.role);
     try {
-      this.signaling = await hostWebRtcRoom(capability, { onTransport: transport => generation === this.generation ? this.#attach(transport, true) : transport.close('stale-session'), onWarning: message => this.#status({ message, error: true }) });
+      this.signaling = await hostWebRtcRoom(capability, { rtcConfig, onTransport: transport => generation === this.generation ? this.#attach(transport, true) : transport.close('stale-session'), onWarning: message => this.#status({ message, error: true }) });
     } catch (error) { await this.leave(); throw error; }
     this.publisher = new SnapshotPublisher(bytes => {
       const frame = encodeFrame({ kind: MessageKind.SIM_SNAPSHOT, roomId: this.roomId, hostEpoch: this.hostEpoch, sequence: ++this.sequence, payload: bytes });
@@ -61,13 +61,13 @@ class RoomSession extends EventTarget {
     this.unsubscribeCommands = subscribeAcceptedCommands(() => this.#scheduleLoroBroadcast());
     this.#status({ message: 'Hosting room' });
   }
-  async join(capability) {
+  async join(capability, { rtcConfig } = {}) {
     await this.leave(); const generation = ++this.generation; this.localBackup = { map: serializeMap(), gameTime: appState.gameTime }; this.capability = capability; this.roomId = roomIdString(capability);
     this.role = AuthorityRole.GUEST; setAuthorityRole(this.role); stopWorker();
     this.receiver = new SnapshotReceiver(snapshot => { applySimulationSnapshot(snapshot); rebuildBuildingIdIndex(); refreshWorld(); });
     setGuestRequestHandler(request => this.#sendCommandRequest(request));
     try {
-      this.signaling = await joinWebRtcRoom(capability, { onTransport: transport => generation === this.generation ? this.#attach(transport, false) : transport.close('stale-session'), onWarning: message => this.#status({ message, error: true }) });
+      this.signaling = await joinWebRtcRoom(capability, { rtcConfig, onTransport: transport => generation === this.generation ? this.#attach(transport, false) : transport.close('stale-session'), onWarning: message => this.#status({ message, error: true }) });
     } catch (error) { await this.leave(); throw error; }
     this.#status({ message: 'Joining room…' });
   }

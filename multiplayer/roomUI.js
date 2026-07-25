@@ -1,10 +1,14 @@
 import { AuthorityRole } from '../authority.js';
 import { createHostIdentity, createRoomCapability, encodeInvite, parseInviteFragment } from './roomCapability.js';
 import { roomSession } from './sessionController.js';
+import { createRtcConfig } from './webrtcRoom.js';
 
 const dialog = document.getElementById('roomDialog');
 const status = document.getElementById('roomStatus');
 const tracker = document.getElementById('roomTracker');
+const turnUrls = document.getElementById('roomTurnUrls');
+const turnUsername = document.getElementById('roomTurnUsername');
+const turnCredential = document.getElementById('roomTurnCredential');
 const copyButton = document.getElementById('copyInviteBtn');
 const allowEdits = document.getElementById('allowGuestEdits');
 let inviteCapability = null;
@@ -13,6 +17,14 @@ let currentInvite = '';
 function setStatus(message, error = false) {
   status.textContent = message;
   status.dataset.error = String(error);
+}
+
+function rtcConfigFromForm() {
+  return createRtcConfig({
+    turnUrls: turnUrls.value.split(/\r?\n/),
+    username: turnUsername.value.trim(),
+    credential: turnCredential.value,
+  });
 }
 
 inviteCapability = parseInviteFragment(location.hash, { clear: true });
@@ -31,13 +43,13 @@ document.getElementById('hostRoomBtn').addEventListener('click', async () => {
     const capability = await createHostIdentity(createRoomCapability([trackerUrl]));
     currentInvite = encodeInvite(capability);
     copyButton.disabled = false;
-    await roomSession.host(capability);
+    await roomSession.host(capability, { rtcConfig: rtcConfigFromForm() });
   } catch (error) { setStatus(error.message, true); }
 });
 
 document.getElementById('joinRoomBtn').addEventListener('click', async () => {
   if (!inviteCapability) return setStatus('Open a Snorb invite URL first.', true);
-  try { await roomSession.join(inviteCapability); inviteCapability = null; }
+  try { await roomSession.join(inviteCapability, { rtcConfig: rtcConfigFromForm() }); inviteCapability = null; }
   catch (error) { setStatus(error.message, true); }
 });
 

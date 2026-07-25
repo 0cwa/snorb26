@@ -30,6 +30,7 @@ import { decodeSimulationSnapshot, encodeSimulationSnapshot } from './multiplaye
 import { MessageKind, decodeFrame, encodeFrame } from './multiplayer/protocol.js';
 import { createRoomCapability, encodeInvite, parseInviteFragment } from './multiplayer/roomCapability.js';
 import { MultiplayerTransport } from './multiplayer/transport.js';
+import { createRtcConfig } from './multiplayer/webrtcRoom.js';
 import { getVisibleTileRect } from './terrainCulling.js';
 import { validateTerrainTextureSize } from './mapSizeValidation.js';
 
@@ -414,6 +415,18 @@ function runTests() {
     const parsed = parseInviteFragment(invite.hash, { clear: false });
     assert(parsed.secret.length === 32 && parsed.roomId.length === 16, 'capability should round-trip');
     assert(parsed.trackerUrls[0].startsWith('wss://'), 'tracker should round-trip');
+  });
+
+  test('TURN configuration retains STUN and validates relay credentials', () => {
+    const config = createRtcConfig({ turnUrls: ['turn:turn.example.test:3478?transport=udp'], username: 'snorb', credential: 'secret' });
+    assert(config.iceServers.length === 2, 'TURN config should retain the STUN server');
+    assert(config.iceServers[1].urls[0].startsWith('turn:'), 'TURN URL should be configured');
+    let rejected = false;
+    try { createRtcConfig({ turnUrls: ['https://turn.example.test'], username: 'snorb', credential: 'secret' }); } catch { rejected = true; }
+    assert(rejected, 'non-TURN URLs must reject');
+    rejected = false;
+    try { createRtcConfig({ turnUrls: ['turn:turn.example.test'], username: 'snorb' }); } catch { rejected = true; }
+    assert(rejected, 'TURN config must require a password');
   });
 
   test('replays transport readiness when handlers attach after DataChannels open', () => {
