@@ -22,7 +22,6 @@ if (inviteCapability) {
   dialog.showModal();
 }
 
-document.getElementById('multiplayerButton').addEventListener('click', () => dialog.showModal());
 document.getElementById('closeRoomBtn').addEventListener('click', () => dialog.close());
 allowEdits.addEventListener('change', () => { roomSession.allowGuestEdits = allowEdits.checked; });
 

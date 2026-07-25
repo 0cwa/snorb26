@@ -411,6 +411,7 @@ function menuClicks(command, tool) {
       break;
     case 'show-help': document.getElementById('helpDialog').showModal(); break;
     case 'show-about': document.getElementById('aboutDialog').showModal(); break;
+    case 'open-multiplayer': document.getElementById('roomDialog').showModal(); break;
     case 'open-reddit': window.open('https://reddit.com/r/snorb'); break;
     case 'find-lemming':
       document.getElementById('findLemmingDialog').showModal();
