@@ -19,6 +19,7 @@ import {
   lemmings,
 } from './state.js';
 import * as shaders from './shaders.js';
+import { validateTerrainTextureSize } from './mapSizeValidation.js';
 import { getVisibleTileRect } from './terrainCulling.js';
 
 export let gl, canvas;
@@ -40,6 +41,40 @@ export let cubeVertCount = 0;
 export const buildBuffers = new Map();
 const typeBuffers = new Map();
 export const customTextures = new Map();
+
+// WebGL2 only guarantees a 2048px texture dimension. Check the active
+// browser/GPU limit before each elevation upload so an unsupported map cannot
+// silently leave an older, smaller elevation texture bound.
+export function getTerrainTextureSizeLimit() {
+  if (!gl) throw new Error("WebGL has not been initialized");
+  return gl.getParameter(gl.MAX_TEXTURE_SIZE);
+}
+
+export function assertTerrainTextureSize(width = GRID_W, height = GRID_H) {
+  const maxTextureSize = getTerrainTextureSizeLimit();
+  const result = validateTerrainTextureSize(width, height, maxTextureSize);
+  if (!result.valid) throw new RangeError(result.reason);
+  return { width, height, maxTextureSize };
+}
+
+// Kept as a structured capability object for callers that need to display it.
+export function getRendererCapabilities() {
+  return { maxTextureSize: getTerrainTextureSizeLimit() };
+}
+
+export const validateElevationTextureSize = assertTerrainTextureSize;
+
+function uploadElevationTexture() {
+  assertTerrainTextureSize();
+  gl.bindTexture(gl.TEXTURE_2D, elevTex);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.getError(); // Discard an earlier, unrelated error before checking this upload.
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8UI, GRID_W, GRID_H, 0, gl.RED_INTEGER, gl.UNSIGNED_BYTE, elevations);
+  const error = gl.getError();
+  if (error !== gl.NO_ERROR) {
+    throw new Error(`Terrain elevation texture upload failed (WebGL error ${error}).`);
+  }
+}
 
 const pickState = { fbo: null, colorTex: null, depthRb: null };
 let pendingPick = null, pendingPickCb = [];
@@ -224,12 +259,12 @@ function setupGeometry() {
 }
 
 function setupTextures() {
+  assertTerrainTextureSize();
   elevTex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, elevTex);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8UI, GRID_W, GRID_H, 0, gl.RED_INTEGER, gl.UNSIGNED_BYTE, elevations);
+  uploadElevationTexture();
 
   paletteTex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, paletteTex);
@@ -286,9 +321,7 @@ function setupTextures() {
 }
 
 export function uploadElevations() {
-  gl.bindTexture(gl.TEXTURE_2D, elevTex);
-  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8UI, GRID_W, GRID_H, 0, gl.RED_INTEGER, gl.UNSIGNED_BYTE, elevations);
+  uploadElevationTexture();
 }
 
 export function rebuildBuildingInstances() {
