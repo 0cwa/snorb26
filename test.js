@@ -29,6 +29,7 @@ import { applySemanticCommand, applySemanticCommandsAtomically, validateSemantic
 import { decodeSimulationSnapshot, encodeSimulationSnapshot } from './multiplayer/snapshotCodec.js';
 import { MessageKind, decodeFrame, encodeFrame } from './multiplayer/protocol.js';
 import { createRoomCapability, encodeInvite, parseInviteFragment } from './multiplayer/roomCapability.js';
+import { MultiplayerTransport } from './multiplayer/transport.js';
 import { getVisibleTileRect } from './terrainCulling.js';
 import { validateTerrainTextureSize } from './mapSizeValidation.js';
 
@@ -413,6 +414,19 @@ function runTests() {
     const parsed = parseInviteFragment(invite.hash, { clear: false });
     assert(parsed.secret.length === 32 && parsed.roomId.length === 16, 'capability should round-trip');
     assert(parsed.trackerUrls[0].startsWith('wss://'), 'tracker should round-trip');
+  });
+
+  test('replays transport readiness when handlers attach after DataChannels open', () => {
+    const transport = new MultiplayerTransport();
+    const info = { type: 'webrtc' };
+    transport._open(info);
+    let calls = 0;
+    transport.setHandlers({ onOpen: received => {
+      calls++;
+      assert(received === info, 'late handler should receive original connection info');
+    } });
+    transport._open(info);
+    assert(calls === 1, 'late handler should receive exactly one readiness notification');
   });
 
   test('semantic batches reject atomically', () => {
