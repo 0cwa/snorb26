@@ -35,7 +35,8 @@ export function flushTerrainSave() {
 }
 
 export function seedDemo(config = null) {
-  // Terrain feature coordinates use a fixed 256-tile reference space.
+  // Keep terrain feature density constant per tile. A larger map therefore
+  // contains more landscape detail rather than a stretched 256-tile sample.
 
   // Default to the original island look if no config is provided
   const cfg = config || { canyons: 0, islands: 80, valleys: 0, beaches: 0, deserts: 0, mountains: 0, erosion: 0 };
@@ -51,13 +52,10 @@ export function seedDemo(config = null) {
   // Random offsets ensure a unique map every time
   const ox = Math.random() * 10000;
   const oy = Math.random() * 10000;
-  const featureScaleX = 256 / GRID_W;
-  const featureScaleY = 256 / GRID_H;
-
   for (let y = 0; y < GRID_H; y++) {
     for (let x = 0; x < GRID_W; x++) {
-      const nx = x * featureScaleX + ox;
-      const ny = y * featureScaleY + oy;
+      const nx = x + ox;
+      const ny = y + oy;
 
       // Base island falloff (distance from center)
       const r = Math.hypot((x - GRID_W * 0.5) / GRID_W, (y - GRID_H * 0.5) / GRID_H);
