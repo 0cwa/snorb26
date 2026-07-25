@@ -18,6 +18,9 @@ const joinSection = document.getElementById('joinRoomSection');
 const hostSection = document.getElementById('hostRoomSection');
 const hostButton = document.getElementById('hostRoomBtn');
 const leaveButton = document.getElementById('leaveRoomBtn');
+const inviteShare = document.getElementById('roomInviteShare');
+const inviteOutput = document.getElementById('roomInviteOutput');
+const hostingContinuesNote = document.getElementById('hostingContinuesNote');
 const indicator = document.getElementById('multiplayerIndicator');
 const menuButton = document.getElementById('openMultiplayerBtn');
 let inviteCapability = null;
@@ -72,6 +75,10 @@ function restoreTurnSettings() {
 }
 
 async function writeClipboardText(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
   const fallback = document.createElement('textarea');
   fallback.value = text;
   fallback.setAttribute('readonly', '');
@@ -82,13 +89,7 @@ async function writeClipboardText(text) {
   fallback.select();
   fallback.setSelectionRange(0, fallback.value.length);
   try {
-    let copied = false;
-    try { copied = document.execCommand('copy'); } catch { /* Try the modern API next. */ }
-    if (copied) return;
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return;
-    }
+    if (document.execCommand('copy')) return;
   } finally { fallback.remove(); }
   throw new Error('Clipboard copy was denied');
 }
@@ -144,7 +145,10 @@ function updateRoomActions(role = roomSession.role, phase = roomSession.phase) {
   hostSection.hidden = isGuest;
   hostButton.hidden = isHost;
   copyButton.hidden = !isHost || !currentInvite;
+  inviteShare.hidden = !isHost || !currentInvite;
+  hostingContinuesNote.hidden = !isHost;
   leaveButton.hidden = phase === 'single-player' || phase === 'reconnect-needed';
+  leaveButton.textContent = isHost ? 'Stop hosting' : 'Leave room';
   allowEdits.disabled = role === AuthorityRole.GUEST;
   updateInviteState();
 }
@@ -216,6 +220,7 @@ document.getElementById('hostRoomBtn').addEventListener('click', async () => {
     if (settings.turnUrls.length && verifiedTurnSignature === turnSignature(settings)) capability.turnConfig = settings;
     await roomSession.host(capability, { rtcConfig: rtcConfigFromForm() });
     currentInvite = encodeInvite(capability);
+    inviteOutput.value = currentInvite;
     updateRoomActions();
   } catch (error) { setStatus(error.message, true); }
 });
@@ -260,7 +265,12 @@ joinButton.addEventListener('click', () => {
 copyButton.addEventListener('click', async () => {
   if (!currentInvite) return;
   try { await writeClipboardText(currentInvite); setStatus('Invite copied.'); }
-  catch { setStatus('Could not access clipboard.', true); }
+  catch {
+    inviteOutput.focus();
+    inviteOutput.select();
+    inviteOutput.setSelectionRange(0, inviteOutput.value.length);
+    setStatus('Clipboard access was denied. The invite is selected; press Ctrl+C.', true);
+  }
 });
 copyRoomLogButton.addEventListener('click', async () => {
   const lines = roomSession.getRecentEvents().map(event =>
@@ -285,7 +295,7 @@ copyRoomLogButton.addEventListener('click', async () => {
 
 leaveButton.addEventListener('click', async () => {
   try { await roomSession.leave(); }
-  finally { currentInvite = ''; updateRoomActions(); }
+  finally { currentInvite = ''; inviteOutput.value = ''; updateRoomActions(); }
 });
 roomSession.addEventListener('status', event => {
   const { role, phase, peers, allowGuestEdits, message, error } = event.detail;

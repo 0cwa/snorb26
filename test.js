@@ -429,10 +429,13 @@ function runTests() {
 
   test('multiplayer setup has one state-aware join action and collapsed TURN settings', () => {
     const html = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
+    const roomUi = readFileSync(new URL('./multiplayer/roomUI.js', import.meta.url), 'utf8');
     assert((html.match(/id="joinRoomBtn"/g) || []).length === 1, 'room setup should expose one join action');
     assert(!html.includes('id="reconnectRoomBtn"'), 'room setup should not expose a duplicate reconnect action');
     assert(html.includes('<details class="turn-settings">'), 'TURN settings should use a disclosure widget');
     assert(!html.includes('<details class="turn-settings" open'), 'TURN settings should be collapsed by default');
+    assert(html.includes('id="roomInviteOutput"') && html.includes('Hosting continues when this dialog is closed'), 'hosts should have a selectable invite and clear background-hosting guidance');
+    assert(roomUi.includes("getElementById('closeRoomBtn').addEventListener('click', () => dialog.close())"), 'closing the room dialog must not leave the active session');
   });
 
   test('TURN configuration retains STUN and validates relay credentials', () => {
