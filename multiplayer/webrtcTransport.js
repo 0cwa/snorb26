@@ -6,7 +6,7 @@ const CHUNK_HEADER = 20;
 const CHUNK_DATA = 16 * 1024;
 let messageId = 0;
 
-function waitIceComplete(pc, timeout = 8000) {
+function waitIceComplete(pc, timeout = 30_000) {
   if (pc.iceGatheringState === 'complete') return Promise.resolve();
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => { cleanup(); reject(new Error('ICE gathering timed out')); }, timeout);
