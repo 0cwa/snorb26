@@ -1,6 +1,7 @@
 const MAX_RADIUS = 64;
 const MAX_ID_LENGTH = 96;
 const MAX_TEXTURE_URL_LENGTH = 2048;
+const SAFE_BUILDING_ID = /^[A-Za-z0-9._-]+$/;
 const ALLOWED_TYPES = new Set([
   'terrain.raise',
   'terrain.smooth',
@@ -43,7 +44,7 @@ export function validateSemanticCommand(input, context) {
     if (!exactKeys(input, new Set(['type', 'x', 'y', 'buildingType', 'id', 'textureUrl']))) throw new TypeError('Unexpected building.place field');
     if (!pointInMap(input.x, input.y, context)) throw new RangeError('Building is outside the map');
     if (!integer(input.buildingType) || input.buildingType < 1 || input.buildingType > 255) throw new RangeError('Invalid building type');
-    if (typeof input.id !== 'string' || input.id.length < 1 || input.id.length > MAX_ID_LENGTH) throw new RangeError('Invalid building id');
+    if (typeof input.id !== 'string' || input.id.length < 1 || input.id.length > MAX_ID_LENGTH || !SAFE_BUILDING_ID.test(input.id)) throw new RangeError('Invalid building id');
     const builtInTypes = context.builtInBuildingTypes ?? 4;
     if (input.textureUrl === undefined) {
       if (input.buildingType > builtInTypes) throw new RangeError('Custom building requires a texture URL');
@@ -57,7 +58,7 @@ export function validateSemanticCommand(input, context) {
     }
   } else {
     if (!exactKeys(input, new Set(['type', 'id']))) throw new TypeError('Unexpected building.remove field');
-    if (typeof input.id !== 'string' || input.id.length < 1 || input.id.length > MAX_ID_LENGTH) throw new RangeError('Invalid building id');
+    if (typeof input.id !== 'string' || input.id.length < 1 || input.id.length > MAX_ID_LENGTH || !SAFE_BUILDING_ID.test(input.id)) throw new RangeError('Invalid building id');
   }
 
   return Object.freeze({ ...input });

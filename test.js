@@ -311,12 +311,13 @@ function runTests() {
   });
 
   test('local preferences round-trip independently', () => {
-    const encoded = encodeLocalPreferences(captureLocalPreferences());
+    const captured = captureLocalPreferences();
+    const encoded = encodeLocalPreferences(captured);
     const decoded = decodeLocalPreferences(encoded);
     assert(decoded?.version === 1, 'preferences should decode');
     camera.targetPanX = -42;
     applyLocalPreferences(decoded);
-    assert(camera.targetPanX === 123, 'saved camera should be restored locally');
+    assert(camera.targetPanX === captured.camera.panX, 'saved camera should be restored locally');
   });
 
   test('legacy local preferences can be migrated without map application', () => {

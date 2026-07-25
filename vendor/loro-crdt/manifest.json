@@ -3,9 +3,9 @@
   "version": "1.13.8",
   "source": "https://registry.npmjs.org/loro-crdt/-/loro-crdt-1.13.8.tgz",
   "files": {
-    "index.js": "sha256-1e47c9e62997a58519d7185641a6c46a5788c9a9720da8eca46590997a8fe2d3",
-    "loro_wasm.js": "sha256-1b6f7e091d8a6665925fa04167c3eee362a92e8ecf7255077896e7cfefb5f564",
-    "loro_wasm_bg.wasm": "sha256-84439f18e60b5ec09248022e23e23f5474ed26bbb9711c30a352430dbaf44c19",
-    "LICENSE": "sha256-a9ec532f4f11817f427e4f3ca0432b176138721e0866f152864b17ebdeac6bbf"
+    "index.js": "1e47c9e62997a58519d7185641a6c46a5788c9a9720da8eca46590997a8fe2d3",
+    "loro_wasm.js": "1b6f7e091d8a6665925fa04167c3eee362a92e8ecf7255077896e7cfefb5f564",
+    "loro_wasm_bg.wasm": "84439f18e60b5ec09248022e23e23f5474ed26bbb9711c30a352430dbaf44c19",
+    "LICENSE": "a9ec532f4f11817f427e4f3ca0432b176138721e0866f152864b17ebdeac6bbf"
   }
 }

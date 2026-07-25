@@ -9,16 +9,19 @@ function validTrackerUrl(value) {
 }
 
 export class WebTorrentTrackerClient {
-  constructor({ url, infoHash, peerId, onOffer, onAnswer, onWarning }) {
+  constructor({ url, infoHash, peerId, onOffer, onAnswer, onWarning, onOpen }) {
     if (!(infoHash instanceof Uint8Array) || infoHash.length !== 20 || !(peerId instanceof Uint8Array) || peerId.length !== 20) throw new TypeError('Tracker IDs must be 20 bytes');
     this.url = validTrackerUrl(url); this.infoHash = infoHash; this.peerId = peerId;
-    this.onOffer = onOffer; this.onAnswer = onAnswer; this.onWarning = onWarning;
+    this.onOffer = onOffer; this.onAnswer = onAnswer; this.onWarning = onWarning; this.onOpen = onOpen;
     this.socket = null; this.interval = null; this.pendingOffers = new Map();
   }
   connect() {
     if (this.socket) return;
     this.socket = new WebSocket(this.url);
-    this.socket.onopen = () => this.announce({ event: 'started', numwant: 0 });
+    this.socket.onopen = () => {
+      this.announce({ event: 'started', numwant: 0 });
+      this.onOpen?.();
+    };
     this.socket.onmessage = event => this.#message(event.data);
     this.socket.onerror = () => this.onWarning?.('Tracker connection error');
     this.socket.onclose = () => { clearTimeout(this.interval); this.interval = null; this.socket = null; };

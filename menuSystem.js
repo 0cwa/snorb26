@@ -42,7 +42,7 @@ import { saveMapToLocal, downloadMapFile, uploadMapFile } from './storage.js';
 import { orbitPivot, setOrbitPivot, performTool } from './main.js';
 import { submitRuntimeAction } from './multiplayer/runtimeActions.js';
 import { initializeCommandBus, rebuildBuildingIdIndex } from './multiplayer/commandBus.js';
-import { AuthorityRole, getAuthorityRole } from './authority.js';
+import { AuthorityRole, GUEST_ALLOWED_TOOLS, getAuthorityRole } from './authority.js';
 
 let activeMenu = null;
 let dragStartedOnTrigger = false;
@@ -362,9 +362,8 @@ export function updateActiveToolMenuItem(tool) {
 
 function menuClicks(command, tool) {
   const guest = getAuthorityRole() === AuthorityRole.GUEST;
-  const guestTools = new Set(['pan', 'orbit', 'raise', 'lower', 'smooth', 'level', 'build', 'custom-build', 'forest', 'demolish', 'plop-lemming', 'cleave-lemming']);
   const hostCommands = new Set(['reset', 'open-file', 'trigger-volcano', 'trigger-earthquake']);
-  if (guest && ((tool && !guestTools.has(tool)) || hostCommands.has(command))) return;
+  if (guest && ((tool && !GUEST_ALLOWED_TOOLS.has(tool)) || hostCommands.has(command))) return;
   const moveSpeed =100 / camera.zoom;
   const zoomStep = 1.1;
   if(tool) {

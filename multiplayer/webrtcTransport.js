@@ -19,7 +19,7 @@ function waitIceComplete(pc, timeout = 30_000) {
 export class WebRtcTransport extends MultiplayerTransport {
   constructor(pc) {
     super(); this.pc = pc; this.reliable = null; this.transient = null; this.closed = false;
-    this.assemblies = new Map();
+    this.assemblies = new Map(); this.expiredAssemblies = new Map();
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'failed') this._error(new Error('WebRTC connection failed'));
       if (['closed', 'failed', 'disconnected'].includes(pc.connectionState)) this.close(pc.connectionState);
@@ -47,24 +47,40 @@ export class WebRtcTransport extends MultiplayerTransport {
     channel.onopen = () => { if (this.reliable?.readyState === 'open' && this.transient?.readyState === 'open') this._open({ type: 'webrtc' }); };
   }
   #receiveChunk(label, bytes) {
-    if (bytes.length < CHUNK_HEADER) return this._error(new Error('Truncated WebRTC chunk'));
+    if (bytes.length < CHUNK_HEADER) return;
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    if (view.getUint32(0) !== CHUNK_MAGIC) return this._error(new Error('Invalid WebRTC chunk'));
+    if (view.getUint32(0) !== CHUNK_MAGIC) return;
     const id = view.getUint32(4), index = view.getUint16(8), count = view.getUint16(10), total = view.getUint32(12), size = view.getUint32(16);
     const expectedCount = Math.ceil(total / CHUNK_DATA) || 1;
     const expectedSize = index === expectedCount - 1 ? total - index * CHUNK_DATA : CHUNK_DATA;
     const key = `${label}:${id}`;
+    if (this.expiredAssemblies.has(key)) return;
     let assembly = this.assemblies.get(key);
     const reserved = [...this.assemblies.values()].reduce((sum, value) => sum + value.total, 0);
     if (!count || count !== expectedCount || index >= count || total > MAX_TRANSIENT_PAYLOAD || size > CHUNK_DATA || size !== expectedSize || size !== bytes.length - CHUNK_HEADER || (!assembly && (this.assemblies.size >= 16 || reserved + total > 16 * 1024 * 1024))) {
-      this.close('chunk-budget-exceeded'); return;
+      return;
     }
-    if (!assembly) { assembly = { count, total, chunks: new Array(count), received: 0, timer: setTimeout(() => this.assemblies.delete(key), 5000) }; this.assemblies.set(key, assembly); }
+    if (!assembly) {
+      assembly = {
+        count,
+        total,
+        chunks: new Array(count),
+        received: 0,
+        timer: setTimeout(() => {
+          this.assemblies.delete(key);
+          const staleTimer = setTimeout(() => this.expiredAssemblies.delete(key), 5000);
+          this.expiredAssemblies.set(key, staleTimer);
+        }, 5000),
+      };
+      this.assemblies.set(key, assembly);
+    }
     if (assembly.count !== count || assembly.total !== total || assembly.chunks[index]) return;
     assembly.chunks[index] = bytes.slice(CHUNK_HEADER); assembly.received += size;
     if (assembly.chunks.every(Boolean)) {
       clearTimeout(assembly.timer); this.assemblies.delete(key);
-      if (assembly.received !== total) return this._error(new Error('WebRTC reassembly mismatch'));
+      const staleTimer = setTimeout(() => this.expiredAssemblies.delete(key), 5000);
+      this.expiredAssemblies.set(key, staleTimer);
+      if (assembly.received !== total) return;
       const message = new Uint8Array(total); let offset = 0;
       for (const chunk of assembly.chunks) { message.set(chunk, offset); offset += chunk.length; }
       label === 'snorb-reliable' ? this._reliable(message) : this._transient(message);
@@ -88,6 +104,7 @@ export class WebRtcTransport extends MultiplayerTransport {
   close(reason = 'closed') {
     if (this.closed) return; this.closed = true;
     for (const value of this.assemblies.values()) clearTimeout(value.timer); this.assemblies.clear();
+    for (const timer of this.expiredAssemblies.values()) clearTimeout(timer); this.expiredAssemblies.clear();
     this.reliable?.close(); this.transient?.close(); this.pc.close(); this._close(reason);
   }
 }

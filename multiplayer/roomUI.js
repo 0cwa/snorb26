@@ -117,12 +117,14 @@ inviteInput.addEventListener('keydown', event => {
 });
 
 document.getElementById('hostRoomBtn').addEventListener('click', async () => {
+  currentInvite = '';
+  copyButton.disabled = true;
   try {
     const trackerUrl = new URL(tracker.value).href;
     const capability = await createHostIdentity(createRoomCapability([trackerUrl]));
+    await roomSession.host(capability, { rtcConfig: rtcConfigFromForm() });
     currentInvite = encodeInvite(capability);
     copyButton.disabled = false;
-    await roomSession.host(capability, { rtcConfig: rtcConfigFromForm() });
   } catch (error) { setStatus(error.message, true); }
 });
 
@@ -160,7 +162,10 @@ copyButton.addEventListener('click', async () => {
   catch { setStatus('Could not access clipboard.', true); }
 });
 
-document.getElementById('leaveRoomBtn').addEventListener('click', () => roomSession.leave());
+document.getElementById('leaveRoomBtn').addEventListener('click', async () => {
+  try { await roomSession.leave(); }
+  finally { currentInvite = ''; copyButton.disabled = true; }
+});
 roomSession.addEventListener('status', event => {
   const { role, phase, peers, allowGuestEdits } = event.detail;
   const permission = allowGuestEdits ? 'guest actions enabled' : 'guest actions disabled';

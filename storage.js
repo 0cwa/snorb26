@@ -22,7 +22,7 @@ import {
   encodeLocalPreferences,
   extractLegacyLocalPreferences,
 } from './localState.js';
-import { initializeCommandBus, rebuildBuildingIdIndex } from './multiplayer/commandBus.js';
+import { initializeCommandBus } from './multiplayer/commandBus.js';
 
 export const MAP_STORAGE_KEY = 'snorb_map_data';
 
@@ -30,11 +30,16 @@ let saveTimeout = null;
 let preferenceSaveTimeout = null;
 
 function writeLocalPreferences() {
-  localStorage.setItem(
-    LOCAL_PREFERENCES_STORAGE_KEY,
-    encodeLocalPreferences(captureLocalPreferences()),
-  );
-  preferenceSaveTimeout = null;
+  try {
+    localStorage.setItem(
+      LOCAL_PREFERENCES_STORAGE_KEY,
+      encodeLocalPreferences(captureLocalPreferences()),
+    );
+  } catch (error) {
+    console.error('Could not save local preferences', error);
+  } finally {
+    preferenceSaveTimeout = null;
+  }
 }
 
 export function saveLocalPreferences(immediate = false) {
@@ -57,9 +62,14 @@ export function saveMapToLocal(fromWorker = false) {
   if (!fromWorker) syncWorkerState();
   if (saveTimeout) clearTimeout(saveTimeout);
   saveTimeout = setTimeout(() => {
-    if (getAuthorityRole() === AuthorityRole.GUEST) { saveTimeout = null; return; }
-    localStorage.setItem(MAP_STORAGE_KEY, serializeMap());
-    saveTimeout = null;
+    try {
+      if (getAuthorityRole() === AuthorityRole.GUEST) return;
+      localStorage.setItem(MAP_STORAGE_KEY, serializeMap());
+    } catch (error) {
+      console.error('Could not save map locally', error);
+    } finally {
+      saveTimeout = null;
+    }
   }, 500);
 }
 
@@ -82,7 +92,6 @@ export function loadMapFromLocal() {
     if (storedPreferences) applyLocalPreferences(storedPreferences);
     return false;
   }
-  rebuildBuildingIdIndex();
   initializeCommandBus().catch(error => console.error('Could not open map command history', error));
 
   if (preferences) {
@@ -120,14 +129,24 @@ export function uploadMapFile() {
       }
 
       const reader = new FileReader();
-      reader.onload = (event) => {
+      reader.onload = async (event) => {
         try {
+          const previousMap = serializeMap();
           const success = deserializeMap(event.target.result);
           if (!success) {
+            deserializeMap(previousMap);
+            await initializeCommandBus().catch(error => console.error('Could not reopen map command history', error));
+            updatePaletteTexture();
+            updateViewMenuUI();
+            updateActiveToolMenuItem();
+            uploadElevations();
+            rebuildExtrusionBuffers();
+            rebuildCubeBuffers();
+            rebuildBuildingInstances();
+            customBuildingRegistry.forEach(url => { if (url) loadCustomTexture(url); });
             resolve(false);
             return;
           }
-          rebuildBuildingIdIndex();
           initializeCommandBus().catch(error => console.error('Could not open map command history', error));
           updatePaletteTexture();
           updateViewMenuUI();

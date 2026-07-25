@@ -19,6 +19,8 @@ let commandList = null;
 let persistenceEnabled = true;
 let persistenceChain = Promise.resolve();
 let operationChain = Promise.resolve();
+let snapshotByteLength = 0;
+let commandIds = new Set();
 
 function ensureWasm() {
   return wasmPromise ||= initLoro();
@@ -52,7 +54,7 @@ async function readStoredBytes(key) {
 async function writeStoredBytes(key, bytes) {
   if (!persistenceEnabled) return;
   const copy = bytes.slice().buffer;
-  persistenceChain = persistenceChain.then(async () => {
+  const writePromise = persistenceChain.then(async () => {
     const database = await openDatabase();
     if (!database) return;
     await new Promise((resolve, reject) => {
@@ -62,7 +64,8 @@ async function writeStoredBytes(key, bytes) {
       transaction.onerror = () => reject(transaction.error);
     }).finally(() => database.close());
   });
-  return persistenceChain;
+  persistenceChain = writePromise.catch(() => {});
+  return writePromise;
 }
 
 function parseAndValidateRecords(list) {
@@ -128,29 +131,35 @@ async function openLog(logKey) {
   currentLogKey = logKey;
   doc = candidate;
   commandList = doc.getList('commands');
+  const records = parseAndValidateRecords(commandList);
+  commandIds = new Set(records.map(record => record.commandId));
+  snapshotByteLength = doc.export({ mode: 'snapshot' }).byteLength;
   return { commandCount: commandList.length, logKey };
 }
 
 export function initializeLoroCommandLog(logKey = currentLogKey) {
-  runtimePromise = operationChain = operationChain.then(() => openLog(logKey));
+  runtimePromise = operationChain.then(() => openLog(logKey));
+  operationChain = runtimePromise.catch(() => {});
   return runtimePromise;
 }
 
-export function preflightLoroTransaction(commands, pendingCount = 0) {
-  if (!Array.isArray(commands) || commands.length > MAX_LORO_TRANSACTION_COMMANDS) throw new RangeError('Loro transaction command limit exceeded');
+export function preflightLoroTransaction(commands, pendingCount = 0, pendingBytes = 0) {
+  if (!Array.isArray(commands) || pendingCount + commands.length > MAX_LORO_TRANSACTION_COMMANDS) throw new RangeError('Loro transaction command limit exceeded');
   if ((commandList?.length || 0) + pendingCount + commands.length > MAX_COMMANDS) throw new RangeError('Loro command history limit exceeded');
   let addedBytes = 0;
+  const newIds = new Set();
   for (const record of commands) {
     validateCanonicalCommandRecord(record);
     validateSemanticCommand(record.command, validationContext);
     const recordBytes = new TextEncoder().encode(JSON.stringify(record)).byteLength;
     if (recordBytes > MAX_RECORD_BYTES) throw new RangeError('Loro command record is too large');
+    if (commandIds.has(record.commandId) || newIds.has(record.commandId)) throw new Error('Duplicate Loro command id');
+    newIds.add(record.commandId);
     addedBytes += recordBytes;
   }
   // Loro's operation encoding adds overhead. A conservative 4x reservation
   // ensures a local edit is rejected before authoritative state is changed.
-  const currentBytes = doc ? doc.export({ mode: 'snapshot' }).byteLength : 0;
-  if (currentBytes + addedBytes * 4 + 4096 > MAX_UPDATE_BYTES) throw new RangeError('Loro history byte limit exceeded');
+  if (snapshotByteLength + (pendingBytes + addedBytes) * 4 + 4096 > MAX_UPDATE_BYTES) throw new RangeError('Loro history byte limit exceeded');
   return true;
 }
 
@@ -161,18 +170,13 @@ export function appendLoroTransaction(commands, logKey = currentLogKey) {
     preflightLoroTransaction(commands);
     if (commands.length === 0) return doc.export({ mode: 'snapshot' });
 
-    // Clone from the existing snapshot without creating another schema commit.
-    const candidate = new LoroDoc();
-    candidate.import(doc.export({ mode: 'snapshot' }));
-    const candidateList = candidate.getList('commands');
-    for (const record of commands) candidateList.push(JSON.stringify(record));
-    candidate.commit();
-    validateDocument(candidate);
-    const bytes = candidate.export({ mode: 'snapshot' });
+    for (const record of commands) commandList.push(JSON.stringify(record));
+    doc.commit();
+    const bytes = doc.export({ mode: 'snapshot' });
     if (bytes.byteLength > MAX_UPDATE_BYTES) throw new RangeError('Loro history byte limit exceeded');
 
-    doc = candidate;
-    commandList = candidateList;
+    for (const record of commands) commandIds.add(record.commandId);
+    snapshotByteLength = bytes.byteLength;
     currentLogKey = logKey;
     await writeStoredBytes(storageKey(logKey), bytes).catch(error => {
       console.warn('Could not persist local Loro history', error);
@@ -185,22 +189,27 @@ export function appendLoroTransaction(commands, logKey = currentLogKey) {
 }
 
 export async function importLoroUpdate(bytes) {
-  await initializeLoroCommandLog();
   if (!(bytes instanceof Uint8Array)) throw new TypeError('Loro update must be Uint8Array');
   if (bytes.byteLength > MAX_UPDATE_BYTES) throw new RangeError('Loro update is too large');
 
-  const currentRecords = parseAndValidateRecords(commandList);
-  const candidate = new LoroDoc();
-  candidate.import(doc.export({ mode: 'snapshot' }));
-  candidate.import(bytes);
-  const validated = validateDocument(candidate, currentRecords);
-  const snapshot = candidate.export({ mode: 'snapshot' });
-  if (snapshot.byteLength > MAX_UPDATE_BYTES) throw new RangeError('Merged Loro history is too large');
+  const task = operationChain.then(async () => {
+    const currentRecords = parseAndValidateRecords(commandList);
+    const candidate = new LoroDoc();
+    candidate.import(doc.export({ mode: 'snapshot' }));
+    candidate.import(bytes);
+    const validated = validateDocument(candidate, currentRecords);
+    const snapshot = candidate.export({ mode: 'snapshot' });
+    if (snapshot.byteLength > MAX_UPDATE_BYTES) throw new RangeError('Merged Loro history is too large');
 
-  doc = candidate;
-  commandList = validated.list;
-  await writeStoredBytes(storageKey(currentLogKey), snapshot);
-  return validated.records;
+    doc = candidate;
+    commandList = validated.list;
+    commandIds = new Set(validated.records.map(record => record.commandId));
+    snapshotByteLength = snapshot.byteLength;
+    await writeStoredBytes(storageKey(currentLogKey), snapshot);
+    return validated.records;
+  });
+  operationChain = task.catch(() => {});
+  return task;
 }
 
 export async function exportLoroSnapshot() {

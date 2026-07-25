@@ -5,6 +5,7 @@ const MAX_TURN_URLS = 4;
 const MAX_TURN_URL_LENGTH = 256;
 const MAX_TURN_USERNAME_LENGTH = 256;
 const MAX_TURN_CREDENTIAL_LENGTH = 1024;
+const JOIN_TIMEOUT_MS = 45_000;
 
 const SAFE_CANDIDATE_TYPES = new Set(['host', 'srflx', 'prflx', 'relay']);
 const SAFE_PROTOCOLS = new Set(['udp', 'tcp', 'tls']);
@@ -180,24 +181,57 @@ export async function hostWebRtcRoom(capability, { onTransport, onWarning, onDia
 }
 
 export async function joinWebRtcRoom(capability, { onTransport, onWarning, onDiagnostic, rtcConfig = DEFAULT_RTC_CONFIG } = {}) {
+  let tracker = null;
+  let transport = null;
+  let timedOut = false;
+  let connected = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    onWarning?.('Timed out waiting for a WebRTC room answer');
+    tracker?.close();
+    transport?.close('join-timeout');
+  }, JOIN_TIMEOUT_MS);
   const url = capability.trackerUrls?.[0];
-  if (!url) throw new Error('A WSS tracker URL is required');
-  const infoHash = await deriveInfoHash(capability);
-  const peerId = crypto.getRandomValues(new Uint8Array(20));
-  const { transport, offer, iceGatheringComplete } = await createGuestWebRtcOffer(rtcConfig, { onPeerConnection: pc => observeIceDiagnostics(pc, onDiagnostic) });
-  if (!iceGatheringComplete) onWarning?.('ICE gathering timed out; sending offer with gathered candidates');
-  const tracker = new WebTorrentTrackerClient({
-    url, infoHash, peerId, onWarning,
-    onAnswer: async ({ answer, token }) => {
-      if (token !== transport) return;
-      try { await applyGuestWebRtcAnswer(transport, answer); onTransport?.(transport); }
-      catch (error) { onWarning?.(error.message); }
-    },
-  });
-  tracker.connect();
-  const announceOffer = () => tracker.announceOffers([{ offer, token: transport }]);
-  const originalOpen = tracker.socket?.onopen;
-  // connect() creates the socket synchronously.
-  tracker.socket.onopen = event => { originalOpen?.(event); announceOffer(); };
-  return { close: () => { tracker.close(); transport.close('left'); }, tracker, transport };
+  try {
+    if (!url) throw new Error('A WSS tracker URL is required');
+    const infoHash = await deriveInfoHash(capability);
+    const peerId = crypto.getRandomValues(new Uint8Array(20));
+    const created = await createGuestWebRtcOffer(rtcConfig, { onPeerConnection: pc => observeIceDiagnostics(pc, onDiagnostic) });
+    transport = created.transport;
+    if (timedOut) {
+      transport.close('join-timeout');
+      throw new Error('Timed out waiting for a WebRTC room answer');
+    }
+    if (!created.iceGatheringComplete) onWarning?.('ICE gathering timed out; sending offer with gathered candidates');
+    tracker = new WebTorrentTrackerClient({
+      url, infoHash, peerId, onWarning,
+      onOpen: () => tracker.announceOffers([{ offer: created.offer, token: transport }]),
+      onAnswer: async ({ answer, token }) => {
+        if (token !== transport || connected || timedOut) return;
+        try {
+          await applyGuestWebRtcAnswer(transport, answer);
+          if (timedOut) return;
+          await onTransport?.(transport);
+          if (timedOut) return;
+          connected = true;
+          clearTimeout(timeout);
+        } catch (error) { onWarning?.(error.message); }
+      },
+    });
+    tracker.connect();
+    return {
+      close: () => {
+        clearTimeout(timeout);
+        tracker.close();
+        transport.close('left');
+      },
+      tracker,
+      transport,
+    };
+  } catch (error) {
+    clearTimeout(timeout);
+    tracker?.close();
+    transport?.close('join-failed');
+    throw error;
+  }
 }

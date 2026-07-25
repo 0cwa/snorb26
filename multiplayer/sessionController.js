@@ -236,8 +236,15 @@ class RoomSession extends EventTarget {
     }
     const commands = Array.isArray(request.commands) ? request.commands : [request.command];
     const commandCost = commands.reduce((sum, command) => {
-      if (command?.type === 'terrain.level') return sum + (Math.abs(command.x1 - command.x0) + 1) * (Math.abs(command.y1 - command.y0) + 1);
-      if (command?.type?.startsWith('terrain.')) return sum + Math.PI * (command.radius || 1) ** 2;
+      if (command?.type === 'terrain.level') {
+        const values = [command.x0, command.x1, command.y0, command.y1];
+        if (!values.every(Number.isFinite)) return Infinity;
+        return sum + (Math.abs(command.x1 - command.x0) + 1) * (Math.abs(command.y1 - command.y0) + 1);
+      }
+      if (command?.type?.startsWith('terrain.')) {
+        if (!Number.isFinite(command.radius)) return Infinity;
+        return sum + Math.PI * command.radius ** 2;
+      }
       return sum + 1;
     }, 0);
     if (peer.requests.length >= 8 || commandCost > 65_536) {
@@ -274,10 +281,10 @@ class RoomSession extends EventTarget {
     this.generation++;
     clearTimeout(this.loroBroadcastTimer); this.publisher?.stop(); this.publisher = null;
     this.unsubscribeCommands?.(); this.unsubscribeCommands = null; setGuestRequestHandler(null); setGuestRuntimeActionHandler(null);
-    this.signaling?.close(); this.signaling = null;
-    for (const peer of this.peers) peer.transport.close('room-left'); this.peers.clear();
     const restore = this.role === AuthorityRole.GUEST ? this.localBackup : null;
     this.role = AuthorityRole.SINGLE_PLAYER; this.phase = ConnectionPhase.SINGLE_PLAYER; setAuthorityRole(this.role); this.capability = null; this.roomId = ''; this.hostEpoch = 0;
+    this.signaling?.close(); this.signaling = null;
+    for (const peer of this.peers) peer.transport.close('room-left'); this.peers.clear();
     if (restore) { deserializeMap(restore.map); appState.gameTime = restore.gameTime; await initializeCommandBus(); refreshWorld(); syncWorkerState(); }
     this.localBackup = null; this.#status({ message: 'Single-player' });
   }

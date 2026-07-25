@@ -6,6 +6,21 @@ export const AuthorityRole = Object.freeze({
   GUEST: 'guest',
 });
 
+export const GUEST_ALLOWED_TOOLS = new Set([
+  'pan',
+  'orbit',
+  'raise',
+  'lower',
+  'smooth',
+  'level',
+  'build',
+  'custom-build',
+  'forest',
+  'demolish',
+  'plop-lemming',
+  'cleave-lemming',
+]);
+
 let role = AuthorityRole.SINGLE_PLAYER;
 
 export function getAuthorityRole() {

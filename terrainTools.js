@@ -139,7 +139,7 @@ export function brushSmoothTouched(cx, cy) {
     x: cx,
     y: cy,
     radius: Math.max(1, brush.radius | 0),
-    strength: brush.smooth || 0.25,
+    strength: typeof brush.smooth === 'number' && Number.isFinite(brush.smooth) ? brush.smooth : 0.25,
   });
   if (!result.applied) return result;
   uploadElevations();

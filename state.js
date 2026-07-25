@@ -1,3 +1,5 @@
+import { baselineBuildingId } from './multiplayer/ids.js';
+
 export let GRID_W = 256;
 export let GRID_H = 256;
 export const TILE_W = 64;
@@ -255,10 +257,13 @@ export function serializeMap() {
   for (const [cell, id] of durableBuildingIds) {
     const buildingType = buildingAt[cell];
     if (!buildingType) continue;
+    const x = cell % GRID_W;
+    const y = Math.floor(cell / GRID_W);
+    if (id === baselineBuildingId(x, y, buildingType)) continue;
     out += formatBlock('buildingId', {}, [
       ['id', id],
-      ['x', cell % GRID_W],
-      ['y', Math.floor(cell / GRID_W)],
+      ['x', x],
+      ['y', y],
       ['buildingType', buildingType],
     ]);
   }
@@ -608,7 +613,8 @@ export function deserializeMap(text) {
 
     durableBuildingIds.clear();
     for (const entry of data.buildingIds) {
-      if (!entry.id || entry.id.length > 96 || entry.x < 0 || entry.y < 0 || entry.x >= gw || entry.y >= gh) continue;
+      if (!entry.id || entry.id.length > 96 || !/^[A-Za-z0-9._-]+$/.test(entry.id)
+        || entry.x < 0 || entry.y < 0 || entry.x >= gw || entry.y >= gh) continue;
       const cell = entry.y * gw + entry.x;
       if (buildingAt[cell] === entry.buildingType) durableBuildingIds.set(cell, entry.id);
     }
