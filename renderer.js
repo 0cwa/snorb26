@@ -799,9 +799,9 @@ export function draw(now) {
   gl.uniform1f(WU.waterLevel, mapSettings.waterLevel); gl.uniform1f(WU.alpha, appState.showUnderground ? 0.2 : 0.48); gl.uniform1f(WU.time, (now || 0) * 0.001);
   gl.uniform1f(WU.tileW, TILE_W); gl.uniform1f(WU.tileH, TILE_H * camera.tilt);
   gl.uniform1f(WU.elevStep, ELEV_STEP * parallaxScalar);
-  setDrawRect(WU, fullDrawRect);
+  setDrawRect(WU, terrainDrawRect);
   gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
-  gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, GRID_W * GRID_H);
+  gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, terrainDrawRect.width * terrainDrawRect.height);
   gl.depthMask(true); gl.disable(gl.BLEND);
 
 }
