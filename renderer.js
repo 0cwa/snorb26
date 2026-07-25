@@ -19,6 +19,7 @@ import {
   lemmings,
 } from './state.js';
 import * as shaders from './shaders.js';
+import { getVisibleTileRect } from './terrainCulling.js';
 
 export let gl, canvas;
 let program, waterProgram, buildProgram, pickProgram, skyProgram, extrudeProgram, editorProgram, lemmingProgram;
@@ -516,6 +517,11 @@ export function rebuildPickResources() {
 export function draw(now) {
   const parallaxScalar = 0.5 + (0.5 / camera.tilt);
   const fullDrawRect = { minX: 0, minY: 0, width: GRID_W, height: GRID_H };
+  const terrainDrawRect = forceFullTerrainRender ? fullDrawRect : getVisibleTileRect({
+    gridWidth: GRID_W, gridHeight: GRID_H, tileWidth: TILE_W, tileHeight: TILE_H,
+    camera, viewportWidth: canvas.width, viewportHeight: canvas.height,
+    maxTerrainElevation: 255, elevationStep: ELEV_STEP * parallaxScalar, marginTiles: 4,
+  });
   gl.viewport(0, 0, canvas.width, canvas.height);
   if (pendingPick) {
     gl.bindFramebuffer(gl.FRAMEBUFFER, pickState.fbo);
@@ -574,7 +580,7 @@ export function draw(now) {
   gl.uniform1f(U.elevStep, ELEV_STEP * parallaxScalar); gl.uniform1i(U.gridW, GRID_W); gl.uniform1i(U.gridH, GRID_H);
   gl.uniform1f(U.tileW, TILE_W); gl.uniform1f(U.tileH, TILE_H * camera.tilt);
   gl.uniform1f(U.elevStep, ELEV_STEP * parallaxScalar);
-  setDrawRect(U, fullDrawRect);
+  setDrawRect(U, terrainDrawRect);
   gl.uniform1i(U.hasSelection, selected.has ? 1 : 0); gl.uniform1i(U.selectedId, selected.id);
   
   if (levelSel.active) {
@@ -593,7 +599,7 @@ export function draw(now) {
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       gl.depthMask(false); // Let buildings render through the terrain
   }
-  gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, GRID_W * GRID_H);
+  gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, terrainDrawRect.width * terrainDrawRect.height);
   if (appState.showUnderground) {
       gl.disable(gl.BLEND);
       gl.depthMask(true); // Restore depth mask for subsequent renders
