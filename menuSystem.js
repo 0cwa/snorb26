@@ -30,7 +30,9 @@ import {
   rebuildExtrusionBuffers,
   rebuildCubeBuffers,
   loadCustomTexture,
+  getRendererCapabilities,
 } from './renderer.js';
+import { validateTerrainTextureSize } from './mapSizeValidation.js';
 import { syncWorkerState } from './workerClient.js';
 import {openQueryDialog} from './queryDialog.js';
 import { getTileScreenPos, setTileInCenter } from './selectionTools.js';
@@ -510,6 +512,11 @@ document.querySelector('#newMapDialog form')?.addEventListener('submit', (e) => 
   e.preventDefault();
   const nextW = parseInt(document.getElementById('newWidth').value, 10) || 256;
   const nextH = parseInt(document.getElementById('newHeight').value, 10) || 256;
+  const sizeCheck = validateTerrainTextureSize(nextW, nextH, getRendererCapabilities().maxTextureSize);
+  if (!sizeCheck.valid) {
+    alert(sizeCheck.reason + "\nChoose a smaller width or height, then try again.");
+    return;
+  }
 
   const config = {
     islands: parseInt(document.getElementById('genIslands').value, 10),
