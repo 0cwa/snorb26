@@ -4,7 +4,6 @@ layout(location=0) in vec2 a_corner;
 uniform vec2 u_viewSize; uniform vec2 u_pan; uniform float u_zoom;
 uniform float u_tileW; uniform float u_tileH; uniform float u_elevStep;
 uniform int u_gridW; uniform int u_gridH; uniform float u_rotation;
-uniform ivec2 u_drawOrigin; uniform int u_drawWidth;
 uniform highp usampler2D u_elevTex;
 out float v_height01; out vec2 v_uv; flat out int v_tileId; flat out ivec2 v_t;
 out vec3 v_normal;
@@ -27,9 +26,8 @@ vec3 rotatedIso(float x, float y, float hV) {
     return vec3(world, depthZ);
 }
 void main(){
-  int tx = u_drawOrigin.x + (gl_InstanceID % u_drawWidth);
-  int ty = u_drawOrigin.y + (gl_InstanceID / u_drawWidth);
-  v_tileId = ty * u_gridW + tx; v_t = ivec2(tx, ty); v_uv = a_corner;
+  int tx = gl_InstanceID % u_gridW, ty = gl_InstanceID / u_gridW;
+  v_tileId = gl_InstanceID; v_t = ivec2(tx, ty); v_uv = a_corner;
   float hV = vertexHeight(tx + int(a_corner.x), ty + int(a_corner.y));
   v_height01 = hV / 255.0;
 
@@ -94,7 +92,6 @@ layout(location=0) in vec2 a_corner;
 uniform vec2 u_viewSize; uniform vec2 u_pan; uniform float u_zoom;
 uniform float u_tileW; uniform float u_tileH; uniform float u_elevStep;
 uniform int u_gridW; uniform int u_gridH; uniform float u_rotation;
-uniform ivec2 u_drawOrigin; uniform int u_drawWidth;
 uniform highp usampler2D u_elevTex; uniform float u_waterLevel;
 out float v_vertexH; out vec2 v_uv; flat out int v_tileId; flat out ivec2 v_t;
 
@@ -116,9 +113,8 @@ vec3 rotatedIso(float x, float y, float hV) {
     return vec3(world, depthZ);
 }
 void main(){
-  int tx = u_drawOrigin.x + (gl_InstanceID % u_drawWidth);
-  int ty = u_drawOrigin.y + (gl_InstanceID / u_drawWidth);
-  v_tileId = ty * u_gridW + tx; v_t = ivec2(tx, ty); v_uv = a_corner;
+  int tx = gl_InstanceID % u_gridW, ty = gl_InstanceID / u_gridW;
+  v_tileId = gl_InstanceID; v_t = ivec2(tx, ty); v_uv = a_corner;
   v_vertexH = vertexHeight(tx + int(a_corner.x), ty + int(a_corner.y));
   
   float hV = u_waterLevel;
