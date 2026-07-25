@@ -84,27 +84,29 @@ function spawnEventEffect(msg) {
   let emojiChar;
 
   if (msg.type === 'true_love') {
-    text.innerHTML = `💖 True Love! 💖<br>${msg.lem.id} & ${msg.other.id}`;
+    text.textContent = '💖';
     emojiChar = '💖';
   } else if (msg.type === 'birth') {
-    text.innerHTML = `🍼 Newborn! 🍼<br>${msg.lem.id}`;
+    text.textContent = '🍼';
     emojiChar = '🍼';
   } else if (msg.type === 'death') {
-    text.innerHTML = `🪦 RIP 🪦<br>${msg.lem.id} at age ${Math.floor(msg.lem.age)}`;
+    text.textContent = '🪦';
     emojiChar = '💀';
   } else if (msg.type === 'party_pooper') {
-    text.innerHTML = `💩 Party Pooper! 💩<br>${msg.other.id} stopped ${msg.lem.id}`;
+    text.textContent = '💩';
     emojiChar = '💩';
   } else {
-    text.innerHTML = `💔 Rejection! 💔<br>${msg.lem.id} & ${msg.other.id}`;
+    text.textContent = '💔';
     emojiChar = '💔';
   }
+  text.classList.add('compact-event');
   container.appendChild(text);
 
   // Spawn the exploding emojis
   for (let i = 0; i < 8; i++) {
     const emoji = document.createElement('div');
     emoji.className = 'event-emoji';
+    emoji.classList.add('compact-event');
     emoji.textContent = emojiChar;
 
     // Calculate a random explosion trajectory
