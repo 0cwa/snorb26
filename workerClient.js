@@ -18,6 +18,7 @@ import {
 import { getTileScreenPos } from './selectionTools.js';
 import { saveMapToLocal } from './storage.js';
 import { isSimulationAuthority, mayRunLocalSimulation } from './authority.js';
+import { rebuildBuildingIdIndex } from './multiplayer/commandBus.js';
 
 export const worker = new Worker('lemmingWorker.js');
 export let workerBusy = false;
@@ -49,6 +50,7 @@ worker.onmessage = (e) => {
     }
     if (msg.buildingsChanged) {
       buildingAt.set(msg.buildingAt);
+      rebuildBuildingIdIndex();
       rebuildBuildingInstances();
     }
     if (msg.needsBufferRebuild) {

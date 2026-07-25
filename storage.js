@@ -21,6 +21,7 @@ import {
   encodeLocalPreferences,
   extractLegacyLocalPreferences,
 } from './localState.js';
+import { initializeCommandBus, rebuildBuildingIdIndex } from './multiplayer/commandBus.js';
 
 export const MAP_STORAGE_KEY = 'snorb_map_data';
 
@@ -77,6 +78,8 @@ export function loadMapFromLocal() {
     if (storedPreferences) applyLocalPreferences(storedPreferences);
     return false;
   }
+  rebuildBuildingIdIndex();
+  initializeCommandBus().catch(error => console.error('Could not open map command history', error));
 
   if (preferences) {
     applyLocalPreferences(preferences);
@@ -116,6 +119,12 @@ export function uploadMapFile() {
       reader.onload = (event) => {
         try {
           const success = deserializeMap(event.target.result);
+          if (!success) {
+            resolve(false);
+            return;
+          }
+          rebuildBuildingIdIndex();
+          initializeCommandBus().catch(error => console.error('Could not open map command history', error));
           updatePaletteTexture();
           updateViewMenuUI();
           updateActiveToolMenuItem();

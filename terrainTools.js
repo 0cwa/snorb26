@@ -3,7 +3,6 @@ import {
   GRID_H,
   clamp,
   elevations,
-  paintStroke,
   brush,
   levelSel,
 } from './state.js';
@@ -11,6 +10,7 @@ import {
   uploadElevations,
 } from './renderer.js';
 import { saveMapToLocal } from './storage.js';
+import { submitSemanticCommand } from './multiplayer/commandBus.js';
 
 export function seedDemo(config = null) {
   const cx = Math.floor(GRID_W * 0.5), cy = Math.floor(GRID_H * 0.5);
@@ -98,79 +98,49 @@ export function seedDemo(config = null) {
 }
 
 export function brushApplyDelta(cx, cy, delta) {
-  const r = Math.max(1, brush.radius | 0);
-  const step = Math.max(1, Math.abs(delta) | 0);
-  for (let oy = -r; oy <= r; oy++) {
-    for (let ox = -r; ox <= r; ox++) {
-      const x = cx + ox, y = cy + oy;
-      if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) continue;
-      if (ox * ox + oy * oy > r * r) continue;
-      const i = y * GRID_W + x;
-      const w = Math.max(0.15, 1.0 - (Math.sqrt(ox * ox + oy * oy) / (r + 0.0001)));
-      elevations[i] = clamp(elevations[i] + (delta >= 0 ? 1 : -1) * Math.max(1, Math.round(step * w)), 0, 255);
-      paintStroke.touched.add(i);
-    }
-  }
+  const result = submitSemanticCommand({
+    type: 'terrain.raise',
+    x: cx,
+    y: cy,
+    radius: Math.max(1, brush.radius | 0),
+    delta,
+  });
+  if (!result.applied) return result;
   uploadElevations();
   saveMapToLocal();
+  return result;
 }
 
 export function brushSmoothTouched(cx, cy) {
-  const r = Math.max(1, brush.radius | 0);
-  const strength = brush.smooth || 0.25;
-
-  // 1. Identify all tiles in the brush radius
-  const affectedIndices = [];
-  for (let oy = -r; oy <= r; oy++) {
-    for (let ox = -r; ox <= r; ox++) {
-      const x = cx + ox, y = cy + oy;
-      if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) continue;
-      if (ox * ox + oy * oy > r * r) continue;
-      affectedIndices.push(y * GRID_W + x);
-    }
-  }
-
-  // 2. Calculate new smoothed values for these tiles
-  const newValues = new Map();
-  for (const i of affectedIndices) {
-    const x = i % GRID_W, y = (i / GRID_W) | 0;
-    let sum = 0, count = 0;
-
-    // Look at 4-neighbors
-    const neighbors = [[0,1], [0,-1], [1,0], [-1,0]];
-    for (const [nx, ny] of neighbors) {
-      const tx = x + nx, ty = y + ny;
-      if (tx >= 0 && tx < GRID_W && ty >= 0 && ty < GRID_H) {
-        sum += elevations[ty * GRID_W + tx];
-        count++;
-      }
-    }
-
-    const avg = count > 0 ? sum / count : elevations[i];
-    // Blend current elevation with neighbor average based on brush smoothness
-    newValues.set(i, Math.round(elevations[i] * (1 - strength) + (avg * strength)));
-  }
-
-  // 3. Apply changes
-  for (const [idx, val] of newValues) {
-    elevations[idx] = clamp(val, 0, 255);
-  }
-
+  const result = submitSemanticCommand({
+    type: 'terrain.smooth',
+    x: cx,
+    y: cy,
+    radius: Math.max(1, brush.radius | 0),
+    strength: brush.smooth || 0.25,
+  });
+  if (!result.applied) return result;
   uploadElevations();
   saveMapToLocal();
+  return result;
 }
 
 export function commitLevelSelection() {
   if (!levelSel.active) return;
-  const h = clamp(levelSel.base, 0, 255);
-  for (let y = Math.min(levelSel.startY, levelSel.endY); y <= Math.max(levelSel.startY, levelSel.endY); y++) {
-    for (let x = Math.min(levelSel.startX, levelSel.endX); x <= Math.max(levelSel.startX, levelSel.endX); x++) {
-      elevations[y * GRID_W + x] = h;
-    }
+  const result = submitSemanticCommand({
+    type: 'terrain.level',
+    x0: levelSel.startX,
+    y0: levelSel.startY,
+    x1: levelSel.endX,
+    y1: levelSel.endY,
+    elevation: clamp(levelSel.base, 0, 255),
+  });
+  if (result.applied) {
+    uploadElevations();
+    saveMapToLocal();
   }
-  uploadElevations();
-  saveMapToLocal();
   levelSel.active = false;
   levelSel.pointerId = null;
+  return result;
 }
 

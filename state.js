@@ -7,6 +7,8 @@ export const BUILD_SPRITES = 4;
 
 export let elevations = new Uint8Array(GRID_W * GRID_H);
 export let buildingAt = new Uint8Array(GRID_W * GRID_H);
+// Sparse stable IDs for durable human-authored buildings, keyed by tile index.
+export const durableBuildingIds = new Map();
 export const customBuildingRegistry = [];
 export const extrusions = [];
 export const extrusionSettings = { width: 0.5, height: 2.0, altitude: 0.0, color: [0.5, 0.5, 0.5] };
@@ -29,6 +31,15 @@ export const SC3K_COLOR_STOPS = [
   { t: 230, c:[170/255, 170/255, 175/255] },
   { t: 255, c:[240/255, 240/255, 242/255] },
 ];
+
+function newMapId() {
+  const bytes = new Uint8Array(16);
+  if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export let mapId = newMapId();
 
 export const mapSettings = {
   waterLevel: 86
@@ -217,6 +228,7 @@ export function serializeMap() {
   // selection, tools, and view preferences are deliberately not included.
   let out = formatBlock('map', mapSettings, [
     ['version', 3],
+    ['mapId', mapId],
     ['width', GRID_W],
     ['height', GRID_H],
     ['waterLevel', mapSettings.waterLevel],
@@ -235,6 +247,17 @@ export function serializeMap() {
     ['deathChance', appState.deathChance],
     ['maxAdditions', appState.maxAdditions],
   ]);
+
+  for (const [cell, id] of durableBuildingIds) {
+    const buildingType = buildingAt[cell];
+    if (!buildingType) continue;
+    out += formatBlock('buildingId', {}, [
+      ['id', id],
+      ['x', cell % GRID_W],
+      ['y', Math.floor(cell / GRID_W)],
+      ['buildingType', buildingType],
+    ]);
+  }
 
   if (customBuildingRegistry.length > 0) {
     out += `customBuildings {\n`;
@@ -362,6 +385,7 @@ export function deserializeMap(text) {
       cubes: [],
       lemmings: [],
       customBuildingRegistry: [],
+      buildingIds: [],
       camera: {},
       map: {},
       brush: {},
@@ -434,6 +458,9 @@ export function deserializeMap(text) {
       if (type === 'map') Object.assign(data.map, props);
       else if (type === 'camera') Object.assign(data.camera, props);
       else if (type === 'brush') Object.assign(data.brush, props);
+      else if (type === 'buildingId') {
+        data.buildingIds.push({ id: props.id, x: parseInt(props.x), y: parseInt(props.y), buildingType: parseInt(props.buildingType) });
+      }
       else if (type === 'customBuildings') {
         Object.keys(props).forEach(k => {
           if (k !== '_comments') data.customBuildingRegistry[parseInt(k)] = props[k];
@@ -559,6 +586,7 @@ export function deserializeMap(text) {
     const gh = parseInt(data.map.height || 256);
     // Loading shared/exported map data must not reset this client's view/UI.
     resizeMapState(gw, gh, { resetLocalState: false });
+    mapId = /^[a-f0-9]{32}$/.test(data.map.mapId || '') ? data.map.mapId : newMapId();
 
     if (b64) {
       const binary = atob(b64);
@@ -572,6 +600,13 @@ export function deserializeMap(text) {
     if (data.customBuildingRegistry) {
        customBuildingRegistry.length = 0;
        customBuildingRegistry.push(...data.customBuildingRegistry);
+    }
+
+    durableBuildingIds.clear();
+    for (const entry of data.buildingIds) {
+      if (!entry.id || entry.id.length > 96 || entry.x < 0 || entry.y < 0 || entry.x >= gw || entry.y >= gh) continue;
+      const cell = entry.y * gw + entry.x;
+      if (buildingAt[cell] === entry.buildingType) durableBuildingIds.set(cell, entry.id);
     }
 
     extrusions.length = 0;
@@ -620,6 +655,8 @@ export function resizeMapState(width, height, { resetLocalState = true } = {}) {
   GRID_H = height;
   elevations = new Uint8Array(GRID_W * GRID_H);
   buildingAt = new Uint8Array(GRID_W * GRID_H);
+  durableBuildingIds.clear();
+  mapId = newMapId();
   extrusions.length = 0;
   cubes.length = 0;
   lemmings.length = 0;
