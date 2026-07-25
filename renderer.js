@@ -26,6 +26,12 @@ let vao, buildVao, buildInstanceBuf, extrudeVao, extrudeBuf, editorVao, editorBu
 let elevTex, paletteTex, buildingTex;
 let U, WU, BU, PU, SU, EU, EDU, LU;
 let buildInstanceCount = 0;
+const forceFullTerrainRender = new URLSearchParams(window.location.search).has("full-terrain-render");
+
+function setDrawRect(uniforms, rect) {
+  gl.uniform2i(uniforms.drawOrigin, rect.minX, rect.minY);
+  gl.uniform1i(uniforms.drawWidth, rect.width);
+}
 let lemmingInstanceData = new Float32Array(0);
 export let extrudeVertCount = 0;
 export let cubeVertCount = 0;
@@ -121,10 +127,10 @@ export function initWebGL(canvasEl) {
   editorProgram = linkProgram(shaders.vsEditor, shaders.fsEditor);
   lemmingProgram = linkProgram(shaders.vsLemming, shaders.fsLemming);
 
-  U = getUniforms(program, ["u_viewSize", "u_pan", "u_zoom", "u_tileW", "u_tileH", "u_elevStep", "u_gridW", "u_gridH", "u_rotation", "u_elevTex", "u_paletteTex", "u_selectedId", "u_hasSelection", "u_outlinePx", "u_levelActive", "u_levelMin", "u_levelMax", "u_showGrid", "u_alpha"]);
-  WU = getUniforms(waterProgram, ["u_viewSize", "u_pan", "u_zoom", "u_tileW", "u_tileH", "u_elevStep", "u_gridW", "u_gridH", "u_rotation", "u_elevTex", "u_paletteTex", "u_waterLevel", "u_alpha", "u_time"]);
+  U = getUniforms(program, ["u_viewSize", "u_pan", "u_zoom", "u_tileW", "u_tileH", "u_elevStep", "u_gridW", "u_gridH", "u_rotation", "u_elevTex", "u_paletteTex", "u_selectedId", "u_hasSelection", "u_outlinePx", "u_levelActive", "u_levelMin", "u_levelMax", "u_showGrid", "u_drawOrigin", "u_drawWidth", "u_alpha"]);
+  WU = getUniforms(waterProgram, ["u_viewSize", "u_pan", "u_zoom", "u_tileW", "u_tileH", "u_elevStep", "u_gridW", "u_gridH", "u_rotation", "u_elevTex", "u_paletteTex", "u_waterLevel", "u_alpha", "u_time", "u_drawOrigin", "u_drawWidth"]);
   BU = getUniforms(buildProgram, ["u_viewSize", "u_pan", "u_zoom", "u_tileW", "u_tileH", "u_elevStep", "u_gridW", "u_gridH", "u_rotation", "u_elevTex", "u_sheet", "u_spritePx", "u_sheetCols", "u_alpha"]);
-  PU = getUniforms(pickProgram, ["u_viewSize", "u_pan", "u_zoom", "u_tileW", "u_tileH", "u_elevStep", "u_gridW", "u_gridH", "u_rotation", "u_elevTex"]);
+  PU = getUniforms(pickProgram, ["u_viewSize", "u_pan", "u_zoom", "u_tileW", "u_tileH", "u_elevStep", "u_gridW", "u_gridH", "u_rotation", "u_elevTex", "u_drawOrigin", "u_drawWidth"]);
   SU = getUniforms(skyProgram, ["u_tilt", "u_rotation", "u_pan"]);
   EU = getUniforms(extrudeProgram, ["u_viewSize", "u_pan", "u_zoom", "u_tileW", "u_tileH", "u_elevStep", "u_gridW", "u_gridH", "u_rotation", "u_elevTex"]);
   EDU = getUniforms(editorProgram, ["u_viewSize", "u_pan", "u_zoom", "u_tileW", "u_tileH", "u_elevStep", "u_gridW", "u_gridH", "u_rotation", "u_elevTex"]);
@@ -509,6 +515,7 @@ export function rebuildPickResources() {
 
 export function draw(now) {
   const parallaxScalar = 0.5 + (0.5 / camera.tilt);
+  const fullDrawRect = { minX: 0, minY: 0, width: GRID_W, height: GRID_H };
   gl.viewport(0, 0, canvas.width, canvas.height);
   if (pendingPick) {
     gl.bindFramebuffer(gl.FRAMEBUFFER, pickState.fbo);
@@ -525,6 +532,7 @@ export function draw(now) {
     gl.uniform1f(PU.elevStep, ELEV_STEP); gl.uniform1i(PU.gridW, GRID_W); gl.uniform1i(PU.gridH, GRID_H);
     gl.uniform1f(PU.tileW, TILE_W); gl.uniform1f(PU.tileH, TILE_H * camera.tilt);
     gl.uniform1f(PU.elevStep, ELEV_STEP * parallaxScalar);
+    setDrawRect(PU, fullDrawRect);
     gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, GRID_W * GRID_H);
 
     gl.readPixels(pendingPick.x, (canvas.height - 1) - pendingPick.y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pickPixel);
@@ -566,7 +574,7 @@ export function draw(now) {
   gl.uniform1f(U.elevStep, ELEV_STEP * parallaxScalar); gl.uniform1i(U.gridW, GRID_W); gl.uniform1i(U.gridH, GRID_H);
   gl.uniform1f(U.tileW, TILE_W); gl.uniform1f(U.tileH, TILE_H * camera.tilt);
   gl.uniform1f(U.elevStep, ELEV_STEP * parallaxScalar);
-
+  setDrawRect(U, fullDrawRect);
   gl.uniform1i(U.hasSelection, selected.has ? 1 : 0); gl.uniform1i(U.selectedId, selected.id);
   
   if (levelSel.active) {
@@ -785,7 +793,7 @@ export function draw(now) {
   gl.uniform1f(WU.waterLevel, mapSettings.waterLevel); gl.uniform1f(WU.alpha, appState.showUnderground ? 0.2 : 0.48); gl.uniform1f(WU.time, (now || 0) * 0.001);
   gl.uniform1f(WU.tileW, TILE_W); gl.uniform1f(WU.tileH, TILE_H * camera.tilt);
   gl.uniform1f(WU.elevStep, ELEV_STEP * parallaxScalar);
-
+  setDrawRect(WU, fullDrawRect);
   gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
   gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, GRID_W * GRID_H);
   gl.depthMask(true); gl.disable(gl.BLEND);
