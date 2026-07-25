@@ -441,6 +441,7 @@ function runTests() {
   test('TURN configuration retains STUN and validates relay credentials', () => {
     const config = createRtcConfig({ turnUrls: ['turn:turn.example.test:3478?transport=udp'], username: 'snorb', credential: 'secret' });
     assert(config.iceServers.length === 2, 'TURN config should retain the STUN server');
+    assert(config.iceServers[0].urls.includes('stun:stun.cloudflare.com:3478'), 'default ICE config should include the Cloudflare STUN fallback');
     assert(config.iceServers[1].urls[0].startsWith('turn:'), 'TURN URL should be configured');
     let rejected = false;
     try { createRtcConfig({ turnUrls: ['https://turn.example.test'], username: 'snorb', credential: 'secret' }); } catch { rejected = true; }
@@ -468,13 +469,25 @@ function runTests() {
     assert(summary.local.type === 'relay' && summary.local.relayProtocol === 'tls', 'candidate summary should retain transport type only');
     assert(!JSON.stringify(summary).includes('192.0.2.1') && !JSON.stringify(summary).includes('local-secret'), 'candidate summary must omit addresses and IDs');
     const handlers = new Map();
-    const fakePc = { iceGatheringState: 'gathering', iceConnectionState: 'checking', connectionState: 'connecting', addEventListener: (name, handler) => handlers.set(name, handler), removeEventListener: name => handlers.delete(name) };
+    const fakePc = {
+      iceGatheringState: 'gathering', iceConnectionState: 'checking', connectionState: 'connecting',
+      getConfiguration: () => ({ iceServers: [
+        { urls: ['stun:stun.example.test', 'stun:backup.example.test'] },
+        { urls: 'turn:turn.example.test', username: 'private-user', credential: 'private-password' },
+      ] }),
+      addEventListener: (name, handler) => handlers.set(name, handler),
+      removeEventListener: name => handlers.delete(name),
+    };
     const events = [];
     const stop = observeIceDiagnostics(fakePc, event => events.push(event));
-    handlers.get('icecandidateerror')({ errorCode: 701, errorText: 'bad\nturn response' });
+    handlers.get('icecandidate')({ candidate: { type: 'relay', protocol: 'udp', address: '192.0.2.1', port: 1234 } });
+    handlers.get('icecandidateerror')({ errorCode: 701, errorText: 'bad\nturn response', url: 'turn:turn.example.test' });
+    assert(events.some(event => event.type === 'ice-server-config' && event.stun === 2 && event.turn === 1), 'ICE diagnostics should report only server-type counts');
+    assert(events.some(event => event.type === 'ice-candidate' && event.candidate.type === 'relay'), 'ICE diagnostics should report safe candidate types');
     assert(events.some(event => event.type === 'ice-gathering-state' && event.state === 'gathering'), 'initial ICE state should be reported');
-    assert(events.at(-1).type === 'ice-candidate-error' && events.at(-1).code === 701 && events.at(-1).category === 'server-unreachable', 'candidate errors should use only a safe category');
-    assert(!JSON.stringify(events.at(-1)).includes('bad turn response'), 'candidate errors must omit browser-supplied text');
+    assert(events.at(-1).type === 'ice-candidate-error' && events.at(-1).code === 701 && events.at(-1).category === 'server-unreachable' && events.at(-1).serverType === 'turn', 'candidate errors should use only a safe category and server type');
+    const diagnostics = JSON.stringify(events);
+    assert(!diagnostics.includes('bad turn response') && !diagnostics.includes('192.0.2.1') && !diagnostics.includes('private-user') && !diagnostics.includes('turn.example.test'), 'ICE diagnostics must omit browser text, addresses, credentials, and server URLs');
     stop();
   });
     const accepted = validateRuntimeAction({ type: 'simulation.setSpeed', gameSpeed: 2 });

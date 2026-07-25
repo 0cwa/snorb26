@@ -45,6 +45,29 @@ function candidateSummary(candidate) {
   return Object.keys(summary).length ? summary : null;
 }
 
+function gatheredCandidateSummary(candidate) {
+  if (!candidate) return null;
+  const summary = {};
+  if (SAFE_CANDIDATE_TYPES.has(candidate.type)) summary.type = candidate.type;
+  if (SAFE_PROTOCOLS.has(candidate.protocol)) summary.protocol = candidate.protocol;
+  if (SAFE_PROTOCOLS.has(candidate.relayProtocol)) summary.relayProtocol = candidate.relayProtocol;
+  return Object.keys(summary).length ? summary : null;
+}
+
+function iceServerSummary(pc) {
+  if (typeof pc.getConfiguration !== 'function') return null;
+  const counts = { stun: 0, turn: 0 };
+  for (const server of pc.getConfiguration()?.iceServers || []) {
+    const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+    for (const value of urls) {
+      const scheme = String(value || '').split(':', 1)[0].toLowerCase();
+      if (scheme === 'stun' || scheme === 'stuns') counts.stun++;
+      else if (scheme === 'turn' || scheme === 'turns') counts.turn++;
+    }
+  }
+  return counts;
+}
+
 export function summarizeIceStats(stats) {
   const entries = [...stats.values()];
   const pair = entries.find(item => item.type === 'candidate-pair' && item.selected)
@@ -64,6 +87,8 @@ export function observeIceDiagnostics(pc, onDiagnostic) {
   if (typeof onDiagnostic !== 'function') return () => {};
   let statsReported = false;
   const emit = event => onDiagnostic({ ...event, at: Date.now() });
+  const servers = iceServerSummary(pc);
+  if (servers) emit({ type: 'ice-server-config', ...servers });
   const reportFailureStats = () => {
     if (statsReported || typeof pc.getStats !== 'function') return;
     statsReported = true;
@@ -84,22 +109,32 @@ export function observeIceDiagnostics(pc, onDiagnostic) {
   };
   const candidateError = event => {
     const code = Number.isFinite(event.errorCode) ? event.errorCode : 0;
-    emit({ type: 'ice-candidate-error', code, category: iceCandidateErrorCategory(code) });
+    const serverType = /^(stun|stuns|turn|turns):/i.exec(String(event.url || ''))?.[1]?.toLowerCase() || 'unknown';
+    emit({ type: 'ice-candidate-error', code, category: iceCandidateErrorCategory(code), serverType });
+  };
+  const candidate = event => {
+    if (!event.candidate) return emit({ type: 'ice-candidates-complete' });
+    const summary = gatheredCandidateSummary(event.candidate);
+    if (summary) emit({ type: 'ice-candidate', candidate: summary });
   };
   pc.addEventListener('icegatheringstatechange', gathering);
   pc.addEventListener('iceconnectionstatechange', iceConnection);
   pc.addEventListener('connectionstatechange', connection);
   pc.addEventListener('icecandidateerror', candidateError);
+  pc.addEventListener('icecandidate', candidate);
   gathering(); iceConnection(); connection();
   return () => {
     pc.removeEventListener('icegatheringstatechange', gathering);
     pc.removeEventListener('iceconnectionstatechange', iceConnection);
     pc.removeEventListener('connectionstatechange', connection);
     pc.removeEventListener('icecandidateerror', candidateError);
+    pc.removeEventListener('icecandidate', candidate);
   };
 }
 
-const DEFAULT_RTC_CONFIG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+const DEFAULT_RTC_CONFIG = {
+  iceServers: [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }],
+};
 
 export function createRtcConfig({ turnUrls = [], username = '', credential = '' } = {}) {
   const urls = Array.isArray(turnUrls) ? turnUrls.map(value => String(value).trim()).filter(Boolean) : [];

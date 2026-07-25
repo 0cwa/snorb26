@@ -96,9 +96,15 @@ class RoomSession extends EventTarget {
   #recordDiagnostic(diagnostic) {
     const state = diagnostic.state ? `: ${diagnostic.state}` : '';
     const message = diagnostic.type === 'ice-candidate-error'
-      ? `ICE candidate error ${diagnostic.code || ''}: ${diagnostic.category || 'unknown error'}`
+      ? `${diagnostic.serverType?.toUpperCase() || 'ICE'} server error ${diagnostic.code || ''}: ${diagnostic.category || 'unknown error'}`
       : diagnostic.type === 'ice-failure-stats'
         ? `ICE candidate pair: ${diagnostic.selectedCandidatePair?.state || 'unavailable'}`
+        : diagnostic.type === 'ice-server-config'
+          ? `ICE servers: ${diagnostic.stun} STUN URL${diagnostic.stun === 1 ? '' : 's'}, ${diagnostic.turn} TURN URL${diagnostic.turn === 1 ? '' : 's'}`
+          : diagnostic.type === 'ice-candidate'
+            ? `ICE candidate: ${diagnostic.candidate?.type || 'unknown'} via ${diagnostic.candidate?.protocol || 'unknown'}`
+            : diagnostic.type === 'ice-candidates-complete'
+              ? 'ICE candidate gathering finished'
         : diagnostic.type === 'ice-gathering-state'
           ? `ICE gathering${state}`
           : diagnostic.type === 'ice-connection-state'
@@ -164,18 +170,27 @@ class RoomSession extends EventTarget {
       onClose: reason => {
         clearTimeout(peer.authTimer); this.peers.delete(peer);
         if (this.role === AuthorityRole.GUEST) void this.#leaveGuestAfterDisconnect(reason, peer.authenticated);
-        else this.#status({ message: `Peer left: ${reason}`, event: { level: 'warning', code: 'peer-disconnected' } });
+        else {
+          const message = !peer.authenticated && reason === 'failed'
+            ? `Peer ICE connection failed before authentication. ${this.capability?.turnConfig ? 'The shared TURN relay did not establish a route.' : 'No verified TURN relay was included in this room.'}`
+            : `Peer left: ${reason}`;
+          this.#status({ message, event: { level: 'warning', code: 'peer-disconnected' } });
+        }
       },
       onError: error => this.#status({ message: error.message, error: true }),
     });
     await transport.open();
   }
   async #leaveGuestAfterDisconnect(reason, wasAuthenticated) {
+    const hadSharedTurn = Boolean(this.capability?.turnConfig?.turnUrls?.length);
     this.#status({ message: `Host disconnected: ${reason}`, error: true, event: { level: 'error', code: 'host-disconnected' } });
     await this.leave();
     if (!this.loadedInvite) return;
     if (!wasAuthenticated) {
-      this.#status({ message: 'Could not connect. Check the network settings and try joining again.', error: true, event: { level: 'warning', code: 'join-unavailable' } });
+      const hint = hadSharedTurn
+        ? 'The shared TURN relay did not establish a route.'
+        : 'The invite had no verified TURN relay; ask the host to verify TURN and create a new room.';
+      this.#status({ message: `Could not connect. ${hint}`, error: true, event: { level: 'warning', code: 'join-unavailable' } });
       return;
     }
     this.phase = ConnectionPhase.RECONNECT_NEEDED;
