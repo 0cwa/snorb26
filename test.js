@@ -1,5 +1,6 @@
 import { compileMath } from './state.js'; //
 import { getVisibleTileRect } from './terrainCulling.js';
+import { validateTerrainTextureSize } from './mapSizeValidation.js';
 
 function assert(condition, message) {
   if (!condition) {
@@ -96,6 +97,35 @@ function runTests() {
   test("blocks words that are not on the Math object or 't' or 'pi'", () => {
     const fn = compileMath('t + someVariable');
     assert(fn === null, 'Should block arbitrary variables');
+  });
+
+  test("accepts terrain dimensions at the browser texture-size limit", () => {
+    const result = validateTerrainTextureSize(2048, 2048, 2048);
+    assert(result.valid, "Expected map to fit");
+    assert(result.reason === null, "A valid map should have no error reason");
+  });
+
+  test("rejects terrain dimensions wider than the browser texture-size limit", () => {
+    const result = validateTerrainTextureSize(2560, 1024, 2048);
+    assert(!result.valid, "Expected oversized width to be rejected");
+    assert(result.reason.includes("2048x2048"), "Error should name the browser limit");
+  });
+
+  test("rejects terrain dimensions taller than the browser texture-size limit", () => {
+    const result = validateTerrainTextureSize(1024, 2560, 2048);
+    assert(!result.valid, "Expected oversized height to be rejected");
+  });
+
+  test("rejects invalid map dimensions before a texture upload is attempted", () => {
+    for (const [width, height] of [[0, 256], [-1, 256], [256.5, 256], [NaN, 256]]) {
+      const result = validateTerrainTextureSize(width, height, 4096);
+      assert(!result.valid, "Expected invalid dimensions to be rejected");
+    }
+  });
+
+  test("rejects an unavailable or invalid browser texture-size limit", () => {
+    const result = validateTerrainTextureSize(256, 256, 0);
+    assert(!result.valid, "Expected invalid browser limit to be rejected");
   });
 
   test('culls a centered, unrotated viewport to a small tile rectangle', () => {
