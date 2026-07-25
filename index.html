@@ -252,6 +252,10 @@
     <div class="content room-panel">
       <h2>Multiplayer Room</h2>
       <p id="roomStatus">Single-player</p>
+      <section class="room-events" aria-labelledby="roomEventsHeading">
+        <h3 id="roomEventsHeading">Recent events</h3>
+        <ol id="roomEventLog" aria-live="polite"></ol>
+      </section>
       <p id="roomInviteState" class="room-note">No invite loaded.</p>
       <label>Paste invite link
         <textarea id="roomInviteInput" rows="2" maxlength="8192" placeholder="Paste a Snorb invite link here"></textarea>

@@ -30,6 +30,9 @@ function setStatus(message, error = false) {
 }
 
 function renderEvent(event) {
+  // A staged GitHub Pages deploy can briefly serve this module with an older
+  // cached document that has no event list. Status updates must still work.
+  if (!eventLog) return;
   const item = document.createElement('li');
   item.dataset.level = event.level;
   item.textContent = `${new Date(event.timestamp).toLocaleTimeString()} — ${event.message}`;
@@ -44,8 +47,8 @@ function connectionState(role, phase, peers) {
   if (phase === 'connected') return role === AuthorityRole.HOST
     ? `Hosting · ${peers} peer${peers === 1 ? '' : 's'}`
     : 'Connected';
-  return 'Single-player';
   if (phase === 'reconnect-needed') return 'Reconnect needed';
+  return 'Single-player';
 }
 
 function updateConnectionIndicator(role = roomSession.role, phase = roomSession.phase, peers = roomSession.peers.size) {
@@ -161,7 +164,9 @@ roomSession.addEventListener('status', event => {
   const permission = allowGuestEdits ? 'guest actions enabled' : 'guest actions disabled';
   updateConnectionIndicator(role, phase, peers);
   allowEdits.disabled = role !== AuthorityRole.HOST;
+  setStatus(`${connectionState(role, phase, peers)} · ${permission}`);
+});
+
 roomSession.getRecentEvents().forEach(renderEvent);
 roomSession.addEventListener('event', event => renderEvent(event.detail));
-});
 window.addEventListener('beforeunload', () => roomSession.leave());
