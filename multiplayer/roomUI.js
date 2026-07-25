@@ -61,8 +61,10 @@ copyButton.addEventListener('click', async () => {
 
 document.getElementById('leaveRoomBtn').addEventListener('click', () => roomSession.leave());
 roomSession.addEventListener('status', event => {
-  const { role, peers, message, error } = event.detail;
-  setStatus(`${message} · ${role} · ${peers} peer${peers === 1 ? '' : 's'}`, error);
+  const { role, phase, peers, allowGuestEdits, message, error, action } = event.detail;
+  const permission = allowGuestEdits ? 'guest actions enabled' : 'guest actions disabled';
+  const outcome = action ? ` · ${action.status}` : '';
+  setStatus(`${message}${outcome} · ${role} · ${phase} · ${peers} peer${peers === 1 ? '' : 's'} · ${permission}`, error);
   allowEdits.disabled = role !== AuthorityRole.HOST;
 });
 window.addEventListener('beforeunload', () => roomSession.leave());

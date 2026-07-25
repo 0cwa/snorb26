@@ -43,14 +43,14 @@ class RoomSession extends EventTarget {
     this.hostEpoch = 0; this.sequence = 0; this.peers = new Set(); this.signaling = null;
     this.publisher = null; this.receiver = new SnapshotReceiver(snapshot => { applySimulationSnapshot(snapshot); rebuildBuildingIdIndex(); refreshWorld(); });
     this.localBackup = null; this.unsubscribeCommands = null; this.loroBroadcastTimer = null;
-    this.allowGuestEdits = true; this.generation = 0;
+    this.allowGuestEdits = true; this.phase = 'single-player'; this.generation = 0;
   }
-  #status(detail) { this.dispatchEvent(new CustomEvent('status', { detail: { role: this.role, peers: this.peers.size, ...detail } })); }
+  #status(detail) { this.dispatchEvent(new CustomEvent('status', { detail: { role: this.role, phase: this.phase, peers: this.peers.size, allowGuestEdits: this.allowGuestEdits, ...detail } })); }
   async host(capability, { rtcConfig } = {}) {
     await this.leave(); const generation = ++this.generation; this.capability = capability; this.roomId = roomIdString(capability);
     this.hostEpoch = crypto.getRandomValues(new Uint32Array(1))[0] || 1;
     encodeSimulationSnapshot(captureSimulationSnapshot({ hostEpoch: this.hostEpoch, sequence: 1 }));
-    this.role = AuthorityRole.HOST; setAuthorityRole(this.role);
+    this.role = AuthorityRole.HOST; this.phase = 'hosting'; setAuthorityRole(this.role);
     try {
       this.signaling = await hostWebRtcRoom(capability, { rtcConfig, onTransport: transport => generation === this.generation ? this.#attach(transport, true) : transport.close('stale-session'), onWarning: message => this.#status({ message, error: true }) });
     } catch (error) { await this.leave(); throw error; }
@@ -64,7 +64,7 @@ class RoomSession extends EventTarget {
   }
   async join(capability, { rtcConfig } = {}) {
     await this.leave(); const generation = ++this.generation; this.localBackup = { map: serializeMap(), gameTime: appState.gameTime }; this.capability = capability; this.roomId = roomIdString(capability);
-    this.role = AuthorityRole.GUEST; setAuthorityRole(this.role); stopWorker();
+    this.role = AuthorityRole.GUEST; this.phase = 'joining'; setAuthorityRole(this.role); stopWorker();
     this.receiver = new SnapshotReceiver(snapshot => { applySimulationSnapshot(snapshot); rebuildBuildingIdIndex(); refreshWorld(); });
     setGuestRequestHandler(request => this.#sendCommandRequest(request));
     setGuestRuntimeActionHandler(request => this.#sendCommandRequest(request));
@@ -110,13 +110,16 @@ class RoomSession extends EventTarget {
       clearTimeout(peer.authTimer);
       if (this.role === AuthorityRole.HOST) {
         const proof = await hostAuthProof(this.capability.hostPrivateKey, this.roomId, hello.challenge);
-        peer.transport.sendReliable(encodeFrame({ kind: MessageKind.HELLO, roomId: this.roomId, hostEpoch: this.hostEpoch, payload: encodeJsonPayload({ role: 'host', challenge: hello.challenge, proof, mapId }) }));
+        peer.transport.sendReliable(encodeFrame({ kind: MessageKind.HELLO, roomId: this.roomId, hostEpoch: this.hostEpoch, payload: encodeJsonPayload({ role: 'host', challenge: hello.challenge, proof, mapId, allowGuestEdits: this.allowGuestEdits }) }));
       }
       if (this.role === AuthorityRole.GUEST) {
         if (!/^[a-f0-9]{32}$/.test(hello.mapId || '')) throw new Error('Invalid host map id');
+        if (typeof hello.allowGuestEdits !== 'boolean') throw new Error('Invalid room permissions');
+        this.allowGuestEdits = hello.allowGuestEdits;
         await initializeLoroCommandLog(hello.mapId);
       }
       if (this.role === AuthorityRole.HOST) await this.#sendBaseline(peer);
+      this.phase = 'connected';
       this.#status({ message: 'Peer authenticated' });
       return;
     }
@@ -125,7 +128,10 @@ class RoomSession extends EventTarget {
     if (frame.kind === MessageKind.SIM_SNAPSHOT && transient && this.role === AuthorityRole.GUEST) this.receiver.receive(frame.payload);
     else if ([MessageKind.LORO_SYNC, MessageKind.LORO_UPDATE].includes(frame.kind) && this.role === AuthorityRole.GUEST) await importLoroUpdate(frame.payload);
     else if (frame.kind === MessageKind.COMMAND_REQUEST && this.role === AuthorityRole.HOST) await this.#acceptCommand(peer, frame);
-    else if (frame.kind === MessageKind.COMMAND_RESULT && this.role === AuthorityRole.GUEST) this.#status({ message: decodeJsonPayload(frame.payload).accepted ? 'Edit accepted' : 'Edit rejected' });
+    else if (frame.kind === MessageKind.COMMAND_RESULT && this.role === AuthorityRole.GUEST) {
+      const result = decodeJsonPayload(frame.payload);
+      this.#status({ message: result.accepted ? 'Action accepted' : `Action rejected: ${result.error || 'unknown error'}`, error: !result.accepted, action: { requestId: result.requestId, status: result.accepted ? 'accepted' : 'rejected', error: result.error } });
+    }
     else if (frame.kind === MessageKind.PING) peer.transport.sendReliable(encodeFrame({ kind: MessageKind.PONG, roomId: this.roomId, hostEpoch: this.hostEpoch }));
     else throw new Error('Unexpected room message');
   }
@@ -178,7 +184,8 @@ class RoomSession extends EventTarget {
   }
   #sendCommandRequest(request) {
     const peer = [...this.peers].find(value => value.authenticated);
-    if (!peer) return;
+    if (!peer) { this.#status({ message: 'Not connected; action was not sent', error: true, action: { requestId: request.requestId, status: 'rejected', error: 'Not connected' } }); return; }
+    this.#status({ message: 'Action pending', action: { requestId: request.requestId, status: 'pending' } });
     peer.transport.sendReliable(encodeFrame({ kind: MessageKind.COMMAND_REQUEST, roomId: this.roomId, hostEpoch: this.hostEpoch, sequence: ++this.sequence, payload: encodeJsonPayload(request) }));
   }
   #scheduleLoroBroadcast() {
@@ -198,7 +205,7 @@ class RoomSession extends EventTarget {
     this.signaling?.close(); this.signaling = null;
     for (const peer of this.peers) peer.transport.close('room-left'); this.peers.clear();
     const restore = this.role === AuthorityRole.GUEST ? this.localBackup : null;
-    this.role = AuthorityRole.SINGLE_PLAYER; setAuthorityRole(this.role); this.capability = null; this.roomId = ''; this.hostEpoch = 0;
+    this.role = AuthorityRole.SINGLE_PLAYER; this.phase = 'single-player'; setAuthorityRole(this.role); this.capability = null; this.roomId = ''; this.hostEpoch = 0;
     if (restore) { deserializeMap(restore.map); appState.gameTime = restore.gameTime; await initializeCommandBus(); refreshWorld(); syncWorkerState(); }
     this.localBackup = null; this.#status({ message: 'Single-player' });
   }
