@@ -31,7 +31,7 @@ import {openQueryDialog} from './queryDialog.js';
 import { saveMapToLocal, saveLocalPreferences, loadLocalPreferences, loadMapFromLocal, downloadMapFile, uploadMapFile } from './storage.js';
 import { updateViewMenuUI, activeCommands } from './menuSystem.js';
 import { syncWorkerState, currentSyncId, postTick } from './workerClient.js';
-import { isSimulationAuthority } from './authority.js';
+import { AuthorityRole, getAuthorityRole, isSimulationAuthority } from './authority.js';
 
 import { seedDemo, brushApplyDelta, brushSmoothTouched, commitLevelSelection, flushTerrainSave } from './terrainTools.js';
 import { brushForest, placeBuildingAtSelected, placeCustomBuildingAtSelected, removeBuildingAtSelected } from './buildingTools.js';
@@ -39,6 +39,7 @@ import { appendExtrusionPoint, finishExtrusion, editPathDown, editPathDrag, sync
 import { placeCubeAt, removeCubeAt, editCubeDown, editCubeDrag } from './cubeTools.js';
 import { placeLemmingAt, cleaveLemmingAt } from './lemmingTools.js';
 import { setTileInCenter, queryDown, getTileScreenPos } from './selectionTools.js';
+import './multiplayer/roomUI.js';
 import {
   beginSemanticTransaction,
   commitSemanticTransaction,
@@ -231,6 +232,8 @@ canvas.addEventListener("pointerdown", (e) => {
 export function performTool(e) {
   // If called by keyboard (Enter), 'e' will be undefined.
   const hasPointer = e && e.pointerId !== undefined;
+  const guestAllowedTools = new Set(['pan', 'orbit', 'raise', 'lower', 'smooth', 'level', 'build', 'custom-build', 'forest', 'demolish']);
+  if (getAuthorityRole() === AuthorityRole.GUEST && !guestAllowedTools.has(appState.toolMode)) return;
   const semanticStroke = ['demolish', 'forest', 'raise', 'lower', 'smooth'].includes(appState.toolMode);
   if (hasPointer && semanticStroke && !paintStroke.active) beginSemanticTransaction(appState.toolMode);
 

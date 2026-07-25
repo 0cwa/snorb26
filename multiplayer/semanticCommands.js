@@ -50,7 +50,9 @@ export function validateSemanticCommand(input, context) {
     } else {
       if (typeof input.textureUrl !== 'string' || input.textureUrl.length < 1 || input.textureUrl.length > MAX_TEXTURE_URL_LENGTH) throw new RangeError('Invalid texture URL');
       const url = new URL(input.textureUrl, globalThis.location?.href || 'https://localhost/');
-      if (!['https:', 'http:'].includes(url.protocol)) throw new RangeError('Unsupported texture URL');
+      const localHttp = url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname);
+      if (url.protocol !== 'https:' && !localHttp) throw new RangeError('Unsupported texture URL');
+      if (url.username || url.password) throw new RangeError('Texture URL credentials are forbidden');
       if (input.buildingType <= builtInTypes) throw new RangeError('Built-in building cannot specify a texture URL');
     }
   } else {

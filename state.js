@@ -40,6 +40,10 @@ function newMapId() {
 }
 
 export let mapId = newMapId();
+export function setMapId(value) {
+  if (!/^[a-f0-9]{32}$/.test(value)) throw new TypeError('Invalid map id');
+  mapId = value;
+}
 
 export const mapSettings = {
   waterLevel: 86

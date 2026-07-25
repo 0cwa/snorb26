@@ -32,6 +32,9 @@ export class WebRtcTransport extends MultiplayerTransport {
     this.#bindChannel(this.pc.createDataChannel('snorb-snapshot', { ordered: false, maxRetransmits: 0 }));
   }
   #bindChannel(channel) {
+    if ((channel.label === 'snorb-reliable' && this.reliable) || (channel.label === 'snorb-snapshot' && this.transient)) {
+      channel.close(); this._error(new Error('Duplicate DataChannel')); return;
+    }
     channel.binaryType = 'arraybuffer';
     if (channel.label === 'snorb-reliable') this.reliable = channel;
     else if (channel.label === 'snorb-snapshot') this.transient = channel;
@@ -48,9 +51,14 @@ export class WebRtcTransport extends MultiplayerTransport {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     if (view.getUint32(0) !== CHUNK_MAGIC) return this._error(new Error('Invalid WebRTC chunk'));
     const id = view.getUint32(4), index = view.getUint16(8), count = view.getUint16(10), total = view.getUint32(12), size = view.getUint32(16);
-    if (!count || index >= count || total > MAX_TRANSIENT_PAYLOAD || size !== bytes.length - CHUNK_HEADER) return this._error(new Error('Invalid WebRTC chunk bounds'));
+    const expectedCount = Math.ceil(total / CHUNK_DATA) || 1;
+    const expectedSize = index === expectedCount - 1 ? total - index * CHUNK_DATA : CHUNK_DATA;
     const key = `${label}:${id}`;
     let assembly = this.assemblies.get(key);
+    const reserved = [...this.assemblies.values()].reduce((sum, value) => sum + value.total, 0);
+    if (!count || count !== expectedCount || index >= count || total > MAX_TRANSIENT_PAYLOAD || size > CHUNK_DATA || size !== expectedSize || size !== bytes.length - CHUNK_HEADER || (!assembly && (this.assemblies.size >= 16 || reserved + total > 16 * 1024 * 1024))) {
+      this.close('chunk-budget-exceeded'); return;
+    }
     if (!assembly) { assembly = { count, total, chunks: new Array(count), received: 0, timer: setTimeout(() => this.assemblies.delete(key), 5000) }; this.assemblies.set(key, assembly); }
     if (assembly.count !== count || assembly.total !== total || assembly.chunks[index]) return;
     assembly.chunks[index] = bytes.slice(CHUNK_HEADER); assembly.received += size;

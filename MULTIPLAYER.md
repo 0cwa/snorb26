@@ -48,8 +48,12 @@ Phase 5 adds native `RTCPeerConnection` transport with reliable ordered command/
 
 Room capabilities use 128-bit room IDs and 256-bit secrets in the URL fragment only. The tracker swarm `info_hash` is a domain-separated SHA-256 derivation, so neither the static host nor tracker receives the secret. `trackerClient.js` implements WebTorrent-compatible WSS announce offer/answer signaling directly; it does not torrent map data. No TURN or host migration is provided.
 
-## Deferred phases
+## Room UI and safety
 
-6. Room UI, invite capability, validation, and safety limits.
+Phase 6 wires the protocol into a minimal Room dialog: host, join, copy invite, leave, status/peer count, tracker selection, and a host-controlled guest-edit toggle. Peers authenticate with an HMAC proof of the fragment secret before any application frame is accepted. Host requests are rate-limited and validated as semantic commands; guests remain non-optimistic and render only host snapshots.
 
-Host migration, deterministic distributed simulation, remote map storage, incremental snapshots, optimistic guest edits, TURN provisioning, and alternate transports remain out of scope for the MVP.
+Guests keep a private in-memory restore point and never autosave remote room state over `snorb_map_data`. Leaving or losing the fixed host restores single-player state and simulation. Peer strings and errors use text content, secrets are never persisted or logged, room size is capped at eight, and protocol/snapshot/Loro/entity limits are enforced before application.
+
+## Explicitly deferred
+
+Host migration, deterministic distributed simulation, remote map storage, incremental snapshots, optimistic guest edits, TURN credential provisioning, and alternate network transports remain out of scope for the MVP.
