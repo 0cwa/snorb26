@@ -538,8 +538,8 @@ export function draw(now) {
     gl.uniform1f(PU.elevStep, ELEV_STEP); gl.uniform1i(PU.gridW, GRID_W); gl.uniform1i(PU.gridH, GRID_H);
     gl.uniform1f(PU.tileW, TILE_W); gl.uniform1f(PU.tileH, TILE_H * camera.tilt);
     gl.uniform1f(PU.elevStep, ELEV_STEP * parallaxScalar);
-    setDrawRect(PU, fullDrawRect);
-    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, GRID_W * GRID_H);
+    setDrawRect(PU, terrainDrawRect);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, terrainDrawRect.width * terrainDrawRect.height);
 
     gl.readPixels(pendingPick.x, (canvas.height - 1) - pendingPick.y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pickPixel);
     const id = (pickPixel[0] + (pickPixel[1] << 8) + (pickPixel[2] << 16)) - 1;
