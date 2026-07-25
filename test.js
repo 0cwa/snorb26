@@ -34,6 +34,7 @@ import { createRtcConfig, observeIceDiagnostics, summarizeIceStats } from './mul
 import { setGuestRuntimeActionHandler, submitRuntimeAction, validateRuntimeAction } from './multiplayer/runtimeActions.js';
 import { getVisibleTileRect } from './terrainCulling.js';
 import { validateTerrainTextureSize } from './mapSizeValidation.js';
+import { readFileSync } from 'node:fs';
 
 function assert(condition, message) {
   if (!condition) {
@@ -424,6 +425,14 @@ function runTests() {
     assert(parsed.trackerUrls[0].startsWith('wss://'), 'tracker should round-trip');
     assert(parsed.turnConfig.turnUrls[0].startsWith('turn:'), 'verified TURN URL should round-trip');
     assert(parsed.turnConfig.username === 'snorb' && parsed.turnConfig.credential === 'secret', 'TURN credentials should stay in the invite fragment');
+  });
+
+  test('multiplayer setup has one state-aware join action and collapsed TURN settings', () => {
+    const html = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
+    assert((html.match(/id="joinRoomBtn"/g) || []).length === 1, 'room setup should expose one join action');
+    assert(!html.includes('id="reconnectRoomBtn"'), 'room setup should not expose a duplicate reconnect action');
+    assert(html.includes('<details class="turn-settings">'), 'TURN settings should use a disclosure widget');
+    assert(!html.includes('<details class="turn-settings" open'), 'TURN settings should be collapsed by default');
   });
 
   test('TURN configuration retains STUN and validates relay credentials', () => {

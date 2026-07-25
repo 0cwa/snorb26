@@ -96,10 +96,16 @@ class RoomSession extends EventTarget {
   #recordDiagnostic(diagnostic) {
     const state = diagnostic.state ? `: ${diagnostic.state}` : '';
     const message = diagnostic.type === 'ice-candidate-error'
-      ? `ICE candidate error ${diagnostic.code || ''}: ${diagnostic.message}`
+      ? `ICE candidate error ${diagnostic.code || ''}: ${diagnostic.category || 'unknown error'}`
       : diagnostic.type === 'ice-failure-stats'
         ? `ICE candidate pair: ${diagnostic.selectedCandidatePair?.state || 'unavailable'}`
-        : `ICE ${diagnostic.type}${state}`;
+        : diagnostic.type === 'ice-gathering-state'
+          ? `ICE gathering${state}`
+          : diagnostic.type === 'ice-connection-state'
+            ? `ICE connection${state}`
+            : diagnostic.type === 'peer-connection-state'
+              ? `Peer connection${state}`
+              : `ICE ${diagnostic.type}${state}`;
     this.#recordEvent(message, {
       level: diagnostic.type.includes('error') || diagnostic.type.includes('failure') ? 'error' : 'info',
       code: diagnostic.type,
@@ -127,7 +133,7 @@ class RoomSession extends EventTarget {
     this.#status({ message: 'Hosting room' });
   }
   async join(capability, { rtcConfig } = {}) {
-    this.loadInvite(capability);
+    if (this.loadedInvite !== capability) this.loadInvite(capability);
     await this.leave(); const generation = ++this.generation; this.localBackup = { map: serializeMap(), gameTime: appState.gameTime }; this.capability = capability; this.roomId = roomIdString(capability);
     this.role = AuthorityRole.GUEST; this.phase = ConnectionPhase.JOINING; setAuthorityRole(this.role); stopWorker();
     this.receiver = new SnapshotReceiver(snapshot => { applySimulationSnapshot(snapshot); rebuildBuildingIdIndex(); refreshWorld(); });
@@ -135,16 +141,18 @@ class RoomSession extends EventTarget {
     setGuestRuntimeActionHandler(request => this.#sendCommandRequest(request));
     try {
       this.signaling = await joinWebRtcRoom(capability, { rtcConfig, onTransport: transport => generation === this.generation ? this.#attach(transport, false) : transport.close('stale-session'), onWarning: message => this.#status({ message, error: true }), onDiagnostic: diagnostic => this.#recordDiagnostic(diagnostic) });
-    } catch (error) { await this.leave(); this.phase = ConnectionPhase.RECONNECT_NEEDED; this.#status({ message: `Join failed: ${error.message}`, error: true, event: { level: 'error', code: 'join-failed' } }); throw error; }
+    } catch (error) { await this.leave(); this.#status({ message: `Join failed: ${error.message}`, error: true, event: { level: 'error', code: 'join-failed' } }); throw error; }
     this.#status({ message: 'Joining room…' });
   }
   async #attach(transport, hosting) {
     if (this.peers.size >= MAX_PEERS) { transport.close('room-full'); return; }
     const peer = { transport, authenticated: false, requests: [], hosting, authTimer: null, lastRequestSequence: 0, challenge: null };
     this.peers.add(peer);
-    peer.authTimer = setTimeout(() => { if (!peer.authenticated) transport.close('authentication-timeout'); }, 10_000);
+    peer.authTimer = setTimeout(() => { if (!peer.authenticated) transport.close('connection-timeout'); }, 45_000);
     transport.setHandlers({
       onOpen: async () => {
+        clearTimeout(peer.authTimer);
+        peer.authTimer = setTimeout(() => { if (!peer.authenticated) transport.close('authentication-timeout'); }, 10_000);
         peer.expectedRole = hosting ? 'guest' : 'host';
         if (hosting) return; // Host responds only after receiving a fresh guest challenge.
         peer.challenge = toHex(crypto.getRandomValues(new Uint8Array(32)));
@@ -153,15 +161,23 @@ class RoomSession extends EventTarget {
       },
       onReliableMessage: bytes => this.#message(peer, bytes, false).catch(error => { this.#status({ message: error.message, error: true }); transport.close('protocol-error'); }),
       onTransientMessage: bytes => this.#message(peer, bytes, true).catch(error => { this.#status({ message: error.message, error: true }); transport.close('protocol-error'); }),
-      onClose: reason => { clearTimeout(peer.authTimer); this.peers.delete(peer); if (this.role === AuthorityRole.GUEST) void this.#leaveGuestForReconnect(reason); else this.#status({ message: `Peer left: ${reason}`, event: { level: 'warning', code: 'peer-disconnected' } }); },
+      onClose: reason => {
+        clearTimeout(peer.authTimer); this.peers.delete(peer);
+        if (this.role === AuthorityRole.GUEST) void this.#leaveGuestAfterDisconnect(reason, peer.authenticated);
+        else this.#status({ message: `Peer left: ${reason}`, event: { level: 'warning', code: 'peer-disconnected' } });
+      },
       onError: error => this.#status({ message: error.message, error: true }),
     });
     await transport.open();
   }
-  async #leaveGuestForReconnect(reason) {
+  async #leaveGuestAfterDisconnect(reason, wasAuthenticated) {
     this.#status({ message: `Host disconnected: ${reason}`, error: true, event: { level: 'error', code: 'host-disconnected' } });
     await this.leave();
     if (!this.loadedInvite) return;
+    if (!wasAuthenticated) {
+      this.#status({ message: 'Could not connect. Check the network settings and try joining again.', error: true, event: { level: 'warning', code: 'join-unavailable' } });
+      return;
+    }
     this.phase = ConnectionPhase.RECONNECT_NEEDED;
     this.#status({ message: 'Reconnect needed. Your invite is still loaded.', error: true, event: { level: 'warning', code: 'reconnect-needed' } });
   }

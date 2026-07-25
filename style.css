@@ -134,11 +134,15 @@ dialog .row label.radio {
 }
 
 #roomDialog { max-width: 34rem; }
+#roomDialog [hidden] { display: none !important; }
 .room-panel { display: grid; gap: 0.75rem; }
 .room-panel label { display: grid; gap: 0.25rem; }
 .room-panel input[type="url"], .room-panel textarea { width: min(28rem, 75vw); }
-.turn-settings[open] { display: grid; gap: 0.6rem; }
-.turn-settings summary, .room-events summary { cursor: pointer; font-weight: bold; }
+.room-action { display: grid; gap: 0.6rem; padding-block: 0.25rem; }
+.room-action h3 { margin: 0; font-size: 1rem; }
+.room-network-settings[open], .turn-settings[open] { display: grid; gap: 0.6rem; }
+.turn-settings { margin-left: 0.75rem; }
+.room-network-settings summary, .turn-settings summary, .room-events summary { cursor: pointer; font-weight: bold; }
 .turn-verification { color: #777; }
 .turn-verification[data-verified="true"] { color: #087c26; }
 .turn-settings small { font-size: 0.8rem; }

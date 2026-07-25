@@ -14,7 +14,10 @@ const allowEdits = document.getElementById('allowGuestEdits');
 const inviteInput = document.getElementById('roomInviteInput');
 const inviteState = document.getElementById('roomInviteState');
 const joinButton = document.getElementById('joinRoomBtn');
-const reconnectButton = document.getElementById('reconnectRoomBtn');
+const joinSection = document.getElementById('joinRoomSection');
+const hostSection = document.getElementById('hostRoomSection');
+const hostButton = document.getElementById('hostRoomBtn');
+const leaveButton = document.getElementById('leaveRoomBtn');
 const indicator = document.getElementById('multiplayerIndicator');
 const menuButton = document.getElementById('openMultiplayerBtn');
 let inviteCapability = null;
@@ -24,6 +27,8 @@ const testTurnButton = document.getElementById('testTurnBtn');
 const turnTestResult = document.getElementById('turnTestResult');
 const turnVerifiedIcon = document.getElementById('turnVerifiedIcon');
 const copyRoomLogButton = document.getElementById('copyRoomLogBtn');
+const roomLogCopyFallback = document.getElementById('roomLogCopyFallback');
+const roomLogCopyText = document.getElementById('roomLogCopyText');
 const TURN_STORAGE_KEY = 'snorb.multiplayer.turn.v1';
 let verifiedTurnSignature = null;
 
@@ -67,22 +72,25 @@ function restoreTurnSettings() {
 }
 
 async function writeClipboardText(text) {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return;
-    }
-  } catch { /* Fall through for browsers that deny the async clipboard API. */ }
   const fallback = document.createElement('textarea');
   fallback.value = text;
   fallback.setAttribute('readonly', '');
   fallback.style.position = 'fixed';
   fallback.style.opacity = '0';
   document.body.append(fallback);
+  fallback.focus();
   fallback.select();
-  const copied = document.execCommand('copy');
-  fallback.remove();
-  if (!copied) throw new Error('Clipboard copy was denied');
+  fallback.setSelectionRange(0, fallback.value.length);
+  try {
+    let copied = false;
+    try { copied = document.execCommand('copy'); } catch { /* Try the modern API next. */ }
+    if (copied) return;
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+  } finally { fallback.remove(); }
+  throw new Error('Clipboard copy was denied');
 }
 
 function setStatus(message, error = false) {
@@ -120,9 +128,25 @@ function updateConnectionIndicator(role = roomSession.role, phase = roomSession.
 
 function updateInviteState() {
   const loaded = Boolean(inviteCapability);
-  inviteState.textContent = loaded ? 'Invite loaded: ready to join.' : 'No invite loaded.';
-  reconnectButton.disabled = !loaded;
+  const reconnecting = roomSession.phase === 'reconnect-needed';
+  inviteState.textContent = reconnecting
+    ? 'The previous connection was lost. Your invite is still ready.'
+    : loaded ? 'Invite ready.' : 'Paste an invite link to join.';
+  joinButton.textContent = reconnecting ? 'Reconnect' : 'Join room';
+  joinButton.disabled = roomSession.phase === 'joining';
   if (roomSession.phase === 'single-player') updateConnectionIndicator();
+}
+
+function updateRoomActions(role = roomSession.role, phase = roomSession.phase) {
+  const isHost = role === AuthorityRole.HOST;
+  const isGuest = role === AuthorityRole.GUEST || phase === 'reconnect-needed';
+  joinSection.hidden = isHost || (role === AuthorityRole.GUEST && phase !== 'reconnect-needed');
+  hostSection.hidden = isGuest;
+  hostButton.hidden = isHost;
+  copyButton.hidden = !isHost || !currentInvite;
+  leaveButton.hidden = phase === 'single-player' || phase === 'reconnect-needed';
+  allowEdits.disabled = role === AuthorityRole.GUEST;
+  updateInviteState();
 }
 
 function parseInviteText(value) {
@@ -164,6 +188,7 @@ if (inviteCapability) {
   updateInviteState();
 }
 updateConnectionIndicator();
+updateRoomActions();
 
 document.getElementById('closeRoomBtn').addEventListener('click', () => dialog.close());
 allowEdits.addEventListener('change', () => { roomSession.allowGuestEdits = allowEdits.checked; });
@@ -183,7 +208,7 @@ for (const input of [turnUrls, turnUsername, turnCredential]) {
 
 document.getElementById('hostRoomBtn').addEventListener('click', async () => {
   currentInvite = '';
-  copyButton.disabled = true;
+  updateRoomActions();
   try {
     const trackerUrl = new URL(tracker.value).href;
     const capability = await createHostIdentity(createRoomCapability([trackerUrl]));
@@ -191,7 +216,7 @@ document.getElementById('hostRoomBtn').addEventListener('click', async () => {
     if (settings.turnUrls.length && verifiedTurnSignature === turnSignature(settings)) capability.turnConfig = settings;
     await roomSession.host(capability, { rtcConfig: rtcConfigFromForm() });
     currentInvite = encodeInvite(capability);
-    copyButton.disabled = false;
+    updateRoomActions();
   } catch (error) { setStatus(error.message, true); }
 });
 
@@ -228,10 +253,9 @@ testTurnButton.addEventListener('click', async () => {
 joinButton.addEventListener('click', () => {
   try {
     if (inviteInput.value.trim()) loadInvite(parseInviteText(inviteInput.value));
-    void joinLoadedInvite();
+    void joinLoadedInvite(roomSession.phase === 'reconnect-needed');
   } catch (error) { setStatus(error.message, true); }
 });
-reconnectButton.addEventListener('click', () => joinLoadedInvite(true));
 
 copyButton.addEventListener('click', async () => {
   if (!currentInvite) return;
@@ -247,20 +271,28 @@ copyRoomLogButton.addEventListener('click', async () => {
     `State: ${connectionState(roomSession.role, roomSession.phase, roomSession.peers.size)}`,
     ...lines,
   ].join('\n');
+  roomLogCopyFallback.hidden = true;
   try { await writeClipboardText(debugLog); setStatus('Debug log copied.'); }
-  catch { setStatus('Could not copy the debug log.', true); }
+  catch {
+    roomLogCopyText.value = debugLog;
+    roomLogCopyFallback.hidden = false;
+    roomLogCopyText.focus();
+    roomLogCopyText.select();
+    roomLogCopyText.setSelectionRange(0, roomLogCopyText.value.length);
+    setStatus('Clipboard access was denied. The debug log is selected; press Ctrl+C.', true);
+  }
 });
 
-document.getElementById('leaveRoomBtn').addEventListener('click', async () => {
+leaveButton.addEventListener('click', async () => {
   try { await roomSession.leave(); }
-  finally { currentInvite = ''; copyButton.disabled = true; }
+  finally { currentInvite = ''; updateRoomActions(); }
 });
 roomSession.addEventListener('status', event => {
-  const { role, phase, peers, allowGuestEdits } = event.detail;
+  const { role, phase, peers, allowGuestEdits, message, error } = event.detail;
   const permission = allowGuestEdits ? 'guest actions enabled' : 'guest actions disabled';
   updateConnectionIndicator(role, phase, peers);
-  allowEdits.disabled = role !== AuthorityRole.HOST;
-  setStatus(`${connectionState(role, phase, peers)} · ${permission}`);
+  updateRoomActions(role, phase);
+  setStatus(message || `${connectionState(role, phase, peers)} · ${permission}`, error);
 });
 
 roomSession.getRecentEvents().forEach(renderEvent);
