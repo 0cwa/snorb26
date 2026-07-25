@@ -35,7 +35,7 @@ export function flushTerrainSave() {
 }
 
 export function seedDemo(config = null) {
-  const cx = Math.floor(GRID_W * 0.5), cy = Math.floor(GRID_H * 0.5);
+  // Terrain feature coordinates use a fixed 256-tile reference space.
 
   // Default to the original island look if no config is provided
   const cfg = config || { canyons: 0, islands: 80, valleys: 0, beaches: 0, deserts: 0, mountains: 0, erosion: 0 };
@@ -51,14 +51,16 @@ export function seedDemo(config = null) {
   // Random offsets ensure a unique map every time
   const ox = Math.random() * 10000;
   const oy = Math.random() * 10000;
+  const featureScaleX = 256 / GRID_W;
+  const featureScaleY = 256 / GRID_H;
 
   for (let y = 0; y < GRID_H; y++) {
     for (let x = 0; x < GRID_W; x++) {
-      const nx = x + ox;
-      const ny = y + oy;
+      const nx = x * featureScaleX + ox;
+      const ny = y * featureScaleY + oy;
 
       // Base island falloff (distance from center)
-      const r = Math.hypot((x - cx) / GRID_W, (y - cy) / GRID_H);
+      const r = Math.hypot((x - GRID_W * 0.5) / GRID_W, (y - GRID_H * 0.5) / GRID_H);
       const islandFactor = c_island > 0 ? 1.0 - (r * (3.0 - c_island * 1.5)) : 1.0;
       let h = c_island > 0 ? Math.max(0, islandFactor) * 120 : 86;
 
