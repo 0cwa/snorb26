@@ -17,6 +17,7 @@ import {
 } from './renderer.js';
 import { getTileScreenPos } from './selectionTools.js';
 import { saveMapToLocal } from './storage.js';
+import { isSimulationAuthority, mayRunLocalSimulation } from './authority.js';
 
 export const worker = new Worker('lemmingWorker.js');
 export let workerBusy = false;
@@ -24,7 +25,7 @@ export function setWorkerBusy(value) { workerBusy = value }
 export let currentSyncId = 0;
 
 export function postTick(dtLemming) {
-    if (dtLemming > 0 && !workerBusy) {
+    if (mayRunLocalSimulation() && dtLemming > 0 && !workerBusy) {
         setWorkerBusy(true);
         worker.postMessage({ type: 'tick', dt: dtLemming });
     }
@@ -35,8 +36,9 @@ worker.onmessage = (e) => {
   if (msg.type === 'tick_result') {
     workerBusy = false;
 
-    // Drop stale results from before a map reset/sync
-    if (msg.syncId !== currentSyncId) return;
+    // Drop stale results from before a map reset/sync. A guest must never
+    // commit local worker output; it will eventually consume host snapshots.
+    if (!isSimulationAuthority() || msg.syncId !== currentSyncId) return;
 
     lemmings.length = 0;
     lemmings.push(...msg.lemmings);
@@ -83,22 +85,32 @@ function spawnEventEffect(msg) {
   text.className = `event-text ${msg.type}`;
   let emojiChar;
 
+  let title;
+  let detail;
   if (msg.type === 'true_love') {
-    text.innerHTML = `💖 True Love! 💖<br>${msg.lem.id} & ${msg.other.id}`;
+    title = '💖 True Love! 💖';
+    detail = `${msg.lem.id} & ${msg.other.id}`;
     emojiChar = '💖';
   } else if (msg.type === 'birth') {
-    text.innerHTML = `🍼 Newborn! 🍼<br>${msg.lem.id}`;
+    title = '🍼 Newborn! 🍼';
+    detail = String(msg.lem.id);
     emojiChar = '🍼';
   } else if (msg.type === 'death') {
-    text.innerHTML = `🪦 RIP 🪦<br>${msg.lem.id} at age ${Math.floor(msg.lem.age)}`;
+    title = '🪦 RIP 🪦';
+    detail = `${msg.lem.id} at age ${Math.floor(msg.lem.age)}`;
     emojiChar = '💀';
   } else if (msg.type === 'party_pooper') {
-    text.innerHTML = `💩 Party Pooper! 💩<br>${msg.other.id} stopped ${msg.lem.id}`;
+    title = '💩 Party Pooper! 💩';
+    detail = `${msg.other.id} stopped ${msg.lem.id}`;
     emojiChar = '💩';
   } else {
-    text.innerHTML = `💔 Rejection! 💔<br>${msg.lem.id} & ${msg.other.id}`;
+    title = '💔 Rejection! 💔';
+    detail = `${msg.lem.id} & ${msg.other.id}`;
     emojiChar = '💔';
   }
+  // Entity IDs can originate in imported/shared data. Never interpolate them
+  // into HTML; fixed markup and text nodes avoid stored DOM injection.
+  text.append(document.createTextNode(title), document.createElement('br'), document.createTextNode(detail));
   container.appendChild(text);
 
   // Spawn the exploding emojis
@@ -125,6 +137,7 @@ function spawnEventEffect(msg) {
 }
 
 export function syncWorkerState() {
+  if (!isSimulationAuthority()) return;
   currentSyncId++;
   worker.postMessage({
     type: 'sync',

@@ -28,7 +28,7 @@ import {
 } from './renderer.js';
 
 import {openQueryDialog} from './queryDialog.js';
-import { saveMapToLocal, loadMapFromLocal, downloadMapFile, uploadMapFile } from './storage.js';
+import { saveMapToLocal, saveLocalPreferences, loadLocalPreferences, loadMapFromLocal, downloadMapFile, uploadMapFile } from './storage.js';
 import { updateViewMenuUI, activeCommands } from './menuSystem.js';
 import { syncWorkerState, currentSyncId, postTick } from './workerClient.js';
 
@@ -69,11 +69,14 @@ window.snorb = {
 // Setup Map & DOM Elements
 const hud = document.getElementById('hud');
 initWebGL(document.getElementById('scene'));
+const restoredLocalPreferences = loadLocalPreferences();
 if (!loadMapFromLocal()) {
   seedDemo();
-  // Center the view and zoom out completely on first load
-  setTileInCenter(GRID_W / 2, GRID_H / 2);
-  camera.targetZoom = camera.defaultZoom;
+  if (!restoredLocalPreferences) {
+    // Center the view and zoom out completely on first load.
+    setTileInCenter(GRID_W / 2, GRID_H / 2);
+    camera.targetZoom = camera.defaultZoom;
+  }
 } else {
   // If we loaded from local, we must tell the renderer to update its buffers
   updatePaletteTexture();
@@ -538,8 +541,10 @@ function tick(now) {
 requestAnimationFrame(tick);
 
 window.addEventListener('blur', () => {
+  saveLocalPreferences(true);
   document.body.classList.add('window-inactive');
 });
+window.addEventListener('beforeunload', () => saveLocalPreferences(true));
 
 window.addEventListener('focus', () => {
   document.body.classList.remove('window-inactive');

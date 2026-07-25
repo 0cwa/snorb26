@@ -65,6 +65,21 @@ export const paintStroke = {
 };
 
 export const brush = { radius: 2, smooth: 0.25 };
+// Multiplayer ownership boundary:
+// - Shared simulation settings are host-authoritative and may be exported/shared.
+// - Local UI fields never leave this browser (camera and brush live above as local state too).
+export const SHARED_SIMULATION_STATE_KEYS = Object.freeze([
+  'enableReproduction', 'enableDestressShocks', 'enableDanceSmoothing',
+  'enableLemmingSwimming', 'isPlaying', 'gameSpeed', 'loveChance',
+  'ageGapPenalty', 'babyChance', 'babyCooldown', 'maxBirthAge', 'deathAge',
+  'deathChance', 'maxAdditions',
+]);
+export const LOCAL_UI_STATE_KEYS = Object.freeze([
+  'toolMode', 'showGrid', 'showUnderground', 'activeExtrusion',
+  'editPathNodeIndex', 'activeCubeIndex', 'activeCubeHandle', 'queryTarget',
+  'eventNotifications', 'cameraShakeTimer',
+]);
+
 const defaultAppState = {
   toolMode: 'pan',
   showGrid: false,
@@ -198,20 +213,19 @@ export function serializeMap() {
     return blockOut;
   };
 
+  // Version 3 is the authoritative map payload boundary. Camera, brush,
+  // selection, tools, and view preferences are deliberately not included.
   let out = formatBlock('map', mapSettings, [
-    ['version', 2],
+    ['version', 3],
     ['width', GRID_W],
     ['height', GRID_H],
     ['waterLevel', mapSettings.waterLevel],
-    ['showGrid', appState.showGrid],
-    ['showUnderground', appState.showUnderground],
     ['isPlaying', appState.isPlaying],
     ['gameSpeed', appState.gameSpeed],
     ['enableReproduction', appState.enableReproduction],
     ['enableDestressShocks', appState.enableDestressShocks],
     ['enableDanceSmoothing', appState.enableDanceSmoothing],
     ['enableLemmingSwimming', appState.enableLemmingSwimming],
-    ['eventNotifications', appState.eventNotifications],
     ['loveChance', appState.loveChance],
     ['ageGapPenalty', appState.ageGapPenalty],
     ['babyChance', appState.babyChance],
@@ -220,19 +234,6 @@ export function serializeMap() {
     ['deathAge', appState.deathAge],
     ['deathChance', appState.deathChance],
     ['maxAdditions', appState.maxAdditions],
-  ]);
-
-  out += formatBlock('camera', camera, [
-    ['panX', camera.targetPanX],
-    ['panY', camera.targetPanY],
-    ['zoom', camera.targetZoom],
-    ['tilt', camera.targetTilt],
-    ['rotation', camera.rotation]
-  ]);
-
-  out += formatBlock('brush', brush, [
-    ['radius', brush.radius],
-    ['smooth', brush.smooth]
   ]);
 
   if (customBuildingRegistry.length > 0) {
@@ -556,7 +557,8 @@ export function deserializeMap(text) {
 
     const gw = parseInt(data.map.width || 256);
     const gh = parseInt(data.map.height || 256);
-    resizeMapState(gw, gh);
+    // Loading shared/exported map data must not reset this client's view/UI.
+    resizeMapState(gw, gh, { resetLocalState: false });
 
     if (b64) {
       const binary = atob(b64);
@@ -580,27 +582,20 @@ export function deserializeMap(text) {
         lemmings.push(...data.lemmings);
     }
 
-    if (data.camera.zoom) {
-      camera.panX = camera.targetPanX = parseFloat(data.camera.panX);
-      camera.panY = camera.targetPanY = parseFloat(data.camera.panY);
-      camera.zoom = camera.targetZoom = parseFloat(data.camera.zoom);
-      camera.tilt = camera.targetTilt = parseFloat(data.camera.tilt || 1.0);
-      camera.rotation = camera.targetRotation = parseFloat(data.camera.rotation || 0);
-      if (data.camera._comments) camera._comments = data.camera._comments;
-    }
+    // Legacy camera/brush blocks are parsed for compatibility, but ignored here.
+    // storage.js migrates them only from this browser's own legacy local save.
 
     mapSettings.waterLevel = parseInt(data.map.waterLevel || 86);
     if (data.map._comments) mapSettings._comments = data.map._comments;
-    const wEl = document.getElementById('waterLevel');
+    const wEl = typeof document !== 'undefined' ? document.getElementById('waterLevel') : null;
     if (wEl) wEl.value = mapSettings.waterLevel;
 
-    appState.showGrid = data.map.showGrid !== 'false';
-    appState.showUnderground = data.map.showUnderground === 'true';
+    // showGrid/showUnderground/eventNotifications in v2 files are local UI
+    // preferences and must not be applied by a map payload.
     appState.enableReproduction = data.map.enableReproduction === 'true';
     appState.enableDestressShocks = data.map.enableDestressShocks === 'true';
     appState.enableDanceSmoothing = data.map.enableDanceSmoothing === 'true';
     appState.enableLemmingSwimming = data.map.enableLemmingSwimming !== 'false';
-    appState.eventNotifications = data.map.eventNotifications === 'true';
 
     if (data.map.isPlaying !== undefined) appState.isPlaying = data.map.isPlaying !== 'false';
     if (data.map.gameSpeed !== undefined) appState.gameSpeed = parseFloat(data.map.gameSpeed) || 1.0;
@@ -613,15 +608,6 @@ export function deserializeMap(text) {
     if (data.map.deathChance !== undefined) appState.deathChance = parseFloat(data.map.deathChance);
     if (data.map.maxAdditions !== undefined) appState.maxAdditions = parseFloat(data.map.maxAdditions);
 
-    if (data.brush.radius) {
-      brush.radius = parseInt(data.brush.radius);
-      brush.smooth = parseFloat(data.brush.smooth);
-      if (data.brush._comments) brush._comments = data.brush._comments;
-      const rEl = document.getElementById('brushSize');
-      const sEl = document.getElementById('brushSmooth');
-      if (rEl) rEl.value = brush.radius;
-      if (sEl) sEl.value = brush.smooth;
-    }
     return true;
   } catch (e) {
     console.error("Failed to parse map text data", e);
@@ -629,7 +615,7 @@ export function deserializeMap(text) {
   }
 }
 
-export function resizeMapState(width, height) {
+export function resizeMapState(width, height, { resetLocalState = true } = {}) {
   GRID_W = width;
   GRID_H = height;
   elevations = new Uint8Array(GRID_W * GRID_H);
@@ -637,6 +623,26 @@ export function resizeMapState(width, height) {
   extrusions.length = 0;
   cubes.length = 0;
   lemmings.length = 0;
-  Object.assign(appState, defaultAppState);
+
+  if (resetLocalState) {
+    Object.assign(appState, defaultAppState);
+    return;
+  }
+
+  // A loaded map controls simulation settings, while view preferences survive.
+  // Ephemeral references into the old map must always be discarded.
+  for (const key of SHARED_SIMULATION_STATE_KEYS) appState[key] = defaultAppState[key];
+  appState.gameTime = 0;
+  appState.activeExtrusion = null;
+  appState.editPathNodeIndex = -1;
+  appState.activeCubeIndex = -1;
+  appState.activeCubeHandle = -1;
+  appState.queryTarget = null;
+  selected.has = false;
+  levelSel.active = false;
+  levelSel.pointerId = null;
+  paintStroke.active = false;
+  paintStroke.pointerId = null;
+  paintStroke.touched.clear();
 }
 

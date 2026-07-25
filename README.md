@@ -8,7 +8,7 @@ Much Love,
 Sen
 
 * Discussion forum on [reddit/r/snorb](https://www.reddit.com/r/snorb/)
-* Map state is persisted in local storage in the browser between page refreshes and maps can be saved and loaded to external files in the [snorbfile format](snorbfile.md).
+* Map state is persisted in local storage in the browser between page refreshes and maps can be saved and loaded to external files in the [snorbfile format](snorbfile.md). Camera, brush, and view preferences are browser-local and are not included in map files.
 * The metaphors used in the source and behavior of lemmings reflect ~~my~~ our struggle to understand conscious awareness and free will.
 
 ## Usage
@@ -47,6 +47,10 @@ snorb.tools.brushApplyDelta(cx, cy, 20);
 // Spawn a lemming in the newly created terrain
 snorb.tools.placeLemmingAt(cx, cy);
 ```
+
+## Multiplayer architecture
+
+The multiplayer MVP is being introduced in phases. The current authority and state boundaries are documented in [MULTIPLAYER.md](MULTIPLAYER.md). Networking and shared editing are not enabled yet.
 
 ## Testing
 
