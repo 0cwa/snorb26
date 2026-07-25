@@ -6,9 +6,12 @@ export class SnapshotPublisher {
     this.send = send; this.interval = 1000 / hz; this.hostEpoch = hostEpoch;
     this.durableSequence = durableSequence; this.sequence = 0; this.timer = null;
   }
+  nextSnapshot() {
+    return encodeSimulationSnapshot(captureSimulationSnapshot({ hostEpoch: this.hostEpoch, sequence: ++this.sequence, durableSequence: this.durableSequence() }));
+  }
   start() {
     if (this.timer) return;
-    const publish = () => this.send(encodeSimulationSnapshot(captureSimulationSnapshot({ hostEpoch: this.hostEpoch, sequence: ++this.sequence, durableSequence: this.durableSequence() })));
+    const publish = () => this.send(this.nextSnapshot());
     publish(); this.timer = setInterval(publish, this.interval);
   }
   stop() { if (this.timer) clearInterval(this.timer); this.timer = null; }

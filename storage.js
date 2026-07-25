@@ -13,6 +13,7 @@ import {
 } from './renderer.js';
 import { updateViewMenuUI, updateActiveToolMenuItem } from './menuSystem.js';
 import { syncWorkerState } from './workerClient.js';
+import { AuthorityRole, getAuthorityRole } from './authority.js';
 import {
   LOCAL_PREFERENCES_STORAGE_KEY,
   applyLocalPreferences,
@@ -50,10 +51,13 @@ export function loadLocalPreferences() {
 }
 
 export function saveMapToLocal(fromWorker = false) {
-  if (!fromWorker) syncWorkerState();
   saveLocalPreferences();
+  // A guest's remote room view must never overwrite their local map.
+  if (getAuthorityRole() === AuthorityRole.GUEST) return;
+  if (!fromWorker) syncWorkerState();
   if (saveTimeout) clearTimeout(saveTimeout);
   saveTimeout = setTimeout(() => {
+    if (getAuthorityRole() === AuthorityRole.GUEST) { saveTimeout = null; return; }
     localStorage.setItem(MAP_STORAGE_KEY, serializeMap());
     saveTimeout = null;
   }, 500);

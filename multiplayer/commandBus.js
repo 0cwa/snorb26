@@ -24,6 +24,7 @@ let activeTransaction = null;
 let guestRequestHandler = null;
 let acceptedSequence = 0;
 let readyLogKey = null;
+const acceptedListeners = new Set();
 
 function context() {
   return {
@@ -108,6 +109,15 @@ export function setGuestRequestHandler(handler) {
   guestRequestHandler = typeof handler === 'function' ? handler : null;
 }
 
+export function subscribeAcceptedCommands(listener) {
+  acceptedListeners.add(listener);
+  return () => acceptedListeners.delete(listener);
+}
+
+function notifyAccepted(records) {
+  for (const listener of acceptedListeners) listener(records);
+}
+
 export function submitSemanticCommand(input) {
   const command = validateSemanticCommand(input, context());
   if (getAuthorityRole() === AuthorityRole.GUEST) {
@@ -125,6 +135,7 @@ export function submitSemanticCommand(input) {
   const dirty = applySemanticCommandsAtomically([command], context());
   if (activeTransaction) activeTransaction.records.push(record);
   else appendRecords([record], mapId);
+  notifyAccepted([record]);
   return { applied: true, pending: false, command, record, dirty };
 }
 
@@ -132,12 +143,9 @@ export function submitSemanticCommands(inputs) {
   if (!Array.isArray(inputs) || inputs.length === 0) return { applied: true, results: [] };
   const commands = inputs.map(input => validateSemanticCommand(input, context()));
   if (getAuthorityRole() === AuthorityRole.GUEST) {
-    const requests = commands.map(command => {
-      const requestId = randomId('request');
-      guestRequestHandler?.({ requestId, command });
-      return { requestId, command };
-    });
-    return { applied: false, pending: true, requests };
+    const requestId = randomId('request');
+    guestRequestHandler?.({ requestId, commands });
+    return { applied: false, pending: true, requestId, commands };
   }
   if (readyLogKey !== mapId) {
     return { applied: false, pending: true, reason: 'history-initializing', commands };
@@ -150,6 +158,7 @@ export function submitSemanticCommands(inputs) {
   const results = commands.map((command, index) => ({ applied: true, command, record: records[index], dirty }));
   if (activeTransaction) activeTransaction.records.push(...records);
   else appendRecords(records, mapId);
+  notifyAccepted(records);
   return { applied: true, pending: false, results };
 }
 

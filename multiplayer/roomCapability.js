@@ -17,13 +17,21 @@ function unbase64url(text, expected) {
 }
 
 export function createRoomCapability(trackerUrls = []) {
-  return { roomId: randomBytes(16), secret: randomBytes(32), hostPeerId: randomBytes(20), trackerUrls };
+  return { roomId: randomBytes(16), secret: randomBytes(32), hostPeerId: randomBytes(20), trackerUrls, hostPrivateKey: null, hostPublicKey: null };
+}
+
+export async function createHostIdentity(capability) {
+  const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  capability.hostPrivateKey = pair.privateKey;
+  capability.hostPublicKey = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey));
+  return capability;
 }
 
 export function encodeInvite(capability, baseUrl = location.href) {
   const url = new URL(baseUrl); url.hash = '';
   const params = new URLSearchParams({
     room: base64url(capability.roomId), key: base64url(capability.secret), host: base64url(capability.hostPeerId),
+    hostKey: base64url(capability.hostPublicKey || (() => { throw new Error('Host identity is not initialized'); })()),
   });
   for (const tracker of capability.trackerUrls || []) params.append('tracker', tracker);
   url.hash = params.toString();
@@ -33,11 +41,13 @@ export function encodeInvite(capability, baseUrl = location.href) {
 export function parseInviteFragment(hash = location.hash, { clear = true } = {}) {
   if (!hash || hash === '#') return null;
   const params = new URLSearchParams(hash.replace(/^#/, ''));
-  if (!params.has('room') || !params.has('key') || !params.has('host')) return null;
+  if (!params.has('room') || !params.has('key') || !params.has('host') || !params.has('hostKey')) return null;
   const capability = {
     roomId: unbase64url(params.get('room'), 16),
     secret: unbase64url(params.get('key'), 32),
     hostPeerId: unbase64url(params.get('host'), 20),
+    hostPublicKey: unbase64url(params.get('hostKey'), 65),
+    hostPrivateKey: null,
     trackerUrls: params.getAll('tracker').slice(0, 4),
   };
   if (clear && globalThis.history) history.replaceState(null, '', `${location.pathname}${location.search}`);

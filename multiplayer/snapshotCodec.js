@@ -1,7 +1,7 @@
 import {
   GRID_H, GRID_W, SHARED_SIMULATION_STATE_KEYS, appState, buildingAt,
   cubes, customBuildingRegistry, durableBuildingIds, elevations, extrusions,
-  lemmings, mapSettings, resizeMapState,
+  lemmings, mapId, mapSettings, resizeMapState, setMapId,
 } from '../state.js';
 
 const MAGIC = 0x534e4150; // SNAP
@@ -16,7 +16,7 @@ export function captureSimulationSnapshot({ hostEpoch = 1, sequence = 1, durable
   const simulation = {};
   for (const key of SHARED_SIMULATION_STATE_KEYS) simulation[key] = appState[key];
   return {
-    hostEpoch, sequence, durableSequence, width: GRID_W, height: GRID_H,
+    hostEpoch, sequence, durableSequence, mapId, width: GRID_W, height: GRID_H,
     gameTime: appState.gameTime,
     waterLevel: mapSettings.waterLevel,
     simulation,
@@ -32,6 +32,7 @@ export function captureSimulationSnapshot({ hostEpoch = 1, sequence = 1, durable
 
 function validateMetadata(value) {
   if (!value || typeof value !== 'object') throw new TypeError('Invalid snapshot metadata');
+  if (!/^[a-f0-9]{32}$/.test(value.mapId || '')) throw new RangeError('Invalid snapshot map id');
   for (const key of ['hostEpoch', 'sequence', 'durableSequence', 'width', 'height']) {
     if (!Number.isSafeInteger(value[key]) || value[key] < 0) throw new RangeError(`Invalid snapshot ${key}`);
   }
@@ -39,7 +40,43 @@ function validateMetadata(value) {
   if (!Number.isFinite(value.gameTime) || !Number.isInteger(value.waterLevel) || value.waterLevel < 0 || value.waterLevel > 255) throw new RangeError('Invalid snapshot world settings');
   if (!Array.isArray(value.cubes) || value.cubes.length > 2048 || !Array.isArray(value.extrusions) || value.extrusions.length > 1024 || !Array.isArray(value.lemmings) || value.lemmings.length > 4096) throw new RangeError('Snapshot entity limit exceeded');
   if (!Array.isArray(value.customBuildingRegistry) || value.customBuildingRegistry.length > 251 || !Array.isArray(value.durableBuildingIds) || value.durableBuildingIds.length > value.width * value.height) throw new RangeError('Snapshot registry limit exceeded');
-  for (const url of value.customBuildingRegistry) if (url != null && (typeof url !== 'string' || url.length > 2048)) throw new RangeError('Invalid snapshot texture URL');
+  for (const url of value.customBuildingRegistry) {
+    if (url == null) continue;
+    if (typeof url !== 'string' || url.length > 2048) throw new RangeError('Invalid snapshot texture URL');
+    const parsed = new URL(url, globalThis.location?.href || 'https://localhost/');
+    const localHttp = parsed.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(parsed.hostname);
+    if (parsed.protocol !== 'https:' && !localHttp) throw new RangeError('Invalid snapshot texture protocol');
+    if (parsed.username || parsed.password) throw new RangeError('Invalid snapshot texture credentials');
+  }
+  let totalPoints = 0, totalAdditions = 0;
+  const finiteFields = (object, fields) => fields.every(field => Number.isFinite(object?.[field]));
+  for (const cube of value.cubes) {
+    if (!finiteFields(cube, ['x', 'y', 'w', 'h']) || (cube.l !== undefined && !Number.isFinite(cube.l)) || !Array.isArray(cube.c) || cube.c.length !== 3 || !cube.c.every(Number.isFinite)) throw new RangeError('Invalid snapshot cube');
+    const additions = cube.additions || [];
+    if (!Array.isArray(additions) || additions.length > 500) throw new RangeError('Snapshot cube additions limit exceeded');
+    totalAdditions += additions.length;
+    for (const addition of additions) if (!finiteFields(addition, ['x', 'y', 'a', 's']) || !Array.isArray(addition.c) || addition.c.length !== 3 || !addition.c.every(Number.isFinite)) throw new RangeError('Invalid cube addition');
+  }
+  for (const path of value.extrusions) {
+    if (!finiteFields(path, ['width', 'height']) || !Array.isArray(path.points) || path.points.length > 256 || !Array.isArray(path.color) || path.color.length !== 3 || !path.color.every(Number.isFinite)) throw new RangeError('Invalid snapshot path');
+    totalPoints += path.points.length;
+    for (const point of path.points) if (!finiteFields(point, ['x', 'y'])) throw new RangeError('Invalid path point');
+  }
+  if (totalPoints > 32_768 || totalAdditions > 20_000) throw new RangeError('Snapshot nested entity limit exceeded');
+  for (const lemming of value.lemmings) {
+    if (typeof lemming.id !== 'string' || !/^[A-Za-z0-9_-]{1,96}$/.test(lemming.id) || !finiteFields(lemming, ['x', 'y', 'a', 's']) || !Array.isArray(lemming.c) || lemming.c.length !== 3 || !lemming.c.every(Number.isFinite)) throw new RangeError('Invalid snapshot lemming');
+    if (lemming.partnerId != null && (typeof lemming.partnerId !== 'string' || !/^[A-Za-z0-9_-]{1,96}$/.test(lemming.partnerId))) throw new RangeError('Invalid lemming partner');
+    for (const field of ['age', 'stress', 'danceProclivity', 'babyCooldown', 'glistenTimer', 'digTimer', 'raiseTimer', 'danceTimer', 'danceRestTimer', 'thinkTimer']) {
+      if (lemming[field] !== undefined && !Number.isFinite(lemming[field])) throw new RangeError('Invalid lemming numeric state');
+    }
+    for (const field of ['grownUp', 'isThinking', 'hasBuilt', 'hasResource', 'isDigging', 'isRaising', 'isDancing']) {
+      if (lemming[field] !== undefined && typeof lemming[field] !== 'boolean') throw new RangeError('Invalid lemming boolean state');
+    }
+    if (lemming.parentIds && (!Array.isArray(lemming.parentIds) || lemming.parentIds.length > 2 || !lemming.parentIds.every(id => typeof id === 'string' && /^[A-Za-z0-9_-]{1,96}$/.test(id)))) throw new RangeError('Invalid lemming parents');
+  }
+  for (const entry of value.durableBuildingIds) if (!Array.isArray(entry) || entry.length !== 2 || !Number.isInteger(entry[0]) || typeof entry[1] !== 'string' || entry[1].length > 96) throw new RangeError('Invalid durable building id');
+  if (!value.simulation || typeof value.simulation !== 'object' || Array.isArray(value.simulation)) throw new RangeError('Invalid simulation settings');
+  for (const [key, setting] of Object.entries(value.simulation)) if (!SHARED_SIMULATION_STATE_KEYS.includes(key) || (typeof setting !== 'boolean' && !Number.isFinite(setting))) throw new RangeError('Invalid simulation setting');
   return value;
 }
 
@@ -86,6 +123,7 @@ export function applySimulationSnapshot(snapshot) {
   const cells = snapshot.width * snapshot.height;
   if (!(snapshot.elevations instanceof Uint8Array) || snapshot.elevations.length !== cells || !(snapshot.buildingAt instanceof Uint8Array) || snapshot.buildingAt.length !== cells) throw new RangeError('Invalid snapshot grids');
   if (GRID_W !== snapshot.width || GRID_H !== snapshot.height) resizeMapState(snapshot.width, snapshot.height, { resetLocalState: false });
+  setMapId(snapshot.mapId);
   elevations.set(snapshot.elevations); buildingAt.set(snapshot.buildingAt);
   customBuildingRegistry.length = 0; customBuildingRegistry.push(...structuredClone(snapshot.customBuildingRegistry));
   cubes.length = 0; cubes.push(...structuredClone(snapshot.cubes));

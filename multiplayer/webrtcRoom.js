@@ -8,14 +8,21 @@ export async function hostWebRtcRoom(capability, { onTransport, onWarning, rtcCo
   const url = capability.trackerUrls?.[0];
   if (!url) throw new Error('A WSS tracker URL is required');
   const infoHash = await deriveInfoHash(capability);
+  let activeNegotiations = 0;
+  const recentOffers = [];
   const tracker = new WebTorrentTrackerClient({
     url, infoHash, peerId: capability.hostPeerId, onWarning,
     onOffer: async ({ offer, offerId, peerId }) => {
+      const now = performance.now();
+      while (recentOffers.length && now - recentOffers[0] > 10_000) recentOffers.shift();
+      if (activeNegotiations >= 8 || recentOffers.length >= 20) return onWarning?.('Tracker offer limit exceeded');
+      recentOffers.push(now); activeNegotiations++;
       try {
         const { transport, answer } = await acceptHostWebRtcOffer(offer, rtcConfig);
         tracker.answer({ answer, offerId, toPeerId: peerId });
         onTransport?.(transport, peerId);
       } catch (error) { onWarning?.(error.message); }
+      finally { activeNegotiations--; }
     },
   });
   tracker.connect();

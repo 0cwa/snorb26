@@ -18,7 +18,7 @@ export function encodeFrame({ kind, roomId, hostEpoch = 0, sequence = 0, flags =
   const room = encoder.encode(String(roomId || ''));
   if (!room.length || room.length > 128) throw new RangeError('Invalid room id');
   const body = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
-  const limit = kind === MessageKind.SIM_SNAPSHOT ? MAX_TRANSIENT_PAYLOAD : MAX_RELIABLE_PAYLOAD;
+  const limit = [MessageKind.SIM_SNAPSHOT, MessageKind.LORO_SYNC, MessageKind.LORO_UPDATE].includes(kind) ? MAX_TRANSIENT_PAYLOAD : MAX_RELIABLE_PAYLOAD;
   if (body.length > limit) throw new RangeError('Protocol payload too large');
   if (!Number.isSafeInteger(hostEpoch) || hostEpoch < 0 || !Number.isSafeInteger(sequence) || sequence < 0) throw new RangeError('Invalid frame sequence');
   const bytes = new Uint8Array(HEADER_BYTES + room.length + body.length);
@@ -40,7 +40,7 @@ export function decodeFrame(input) {
   const roomLength = view.getUint16(16), payloadLength = view.getUint32(20);
   const expected = HEADER_BYTES + roomLength + payloadLength;
   if (!roomLength || roomLength > 128 || expected !== bytes.length) throw new RangeError('Protocol frame length mismatch');
-  const limit = kind === MessageKind.SIM_SNAPSHOT ? MAX_TRANSIENT_PAYLOAD : MAX_RELIABLE_PAYLOAD;
+  const limit = [MessageKind.SIM_SNAPSHOT, MessageKind.LORO_SYNC, MessageKind.LORO_UPDATE].includes(kind) ? MAX_TRANSIENT_PAYLOAD : MAX_RELIABLE_PAYLOAD;
   if (payloadLength > limit) throw new RangeError('Protocol payload too large');
   return {
     v: PROTOCOL_VERSION, kind, flags: view.getUint16(6), hostEpoch: view.getUint32(8), sequence: view.getUint32(12),

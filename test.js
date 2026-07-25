@@ -261,7 +261,7 @@ function runTests() {
   test('binary simulation snapshots round-trip typed terrain data', () => {
     const cells = 16 * 16;
     const snapshot = {
-      hostEpoch: 3, sequence: 9, durableSequence: 4, width: 16, height: 16,
+      hostEpoch: 3, sequence: 9, durableSequence: 4, mapId: '00000000000000000000000000000001', width: 16, height: 16,
       gameTime: 12.5, waterLevel: 86, simulation: { isPlaying: true },
       elevations: Uint8Array.from({ length: cells }, (_, index) => index % 256),
       buildingAt: new Uint8Array(cells), durableBuildingIds: [],
@@ -274,6 +274,10 @@ function runTests() {
     let rejected = false;
     try { decodeSimulationSnapshot(bytes.subarray(0, bytes.length - 1)); } catch { rejected = true; }
     assert(rejected, 'truncated snapshot must reject');
+    const malicious = { ...snapshot, lemmings: [{ id: '\"><img src=x onerror=alert(1)>', x: 1, y: 1, a: 0, s: 1, c: [1, 1, 1] }] };
+    rejected = false;
+    try { encodeSimulationSnapshot(malicious); } catch { rejected = true; }
+    assert(rejected, 'unsafe network entity strings must reject');
   });
 
   test('binary protocol frames reject truncation and preserve payloads', () => {
@@ -287,6 +291,7 @@ function runTests() {
 
   test('room secret stays in a round-trippable URL fragment', () => {
     const capability = createRoomCapability(['wss://tracker.example.test/announce']);
+    capability.hostPublicKey = crypto.getRandomValues(new Uint8Array(65));
     const invite = new URL(encodeInvite(capability, 'https://snorb.example/app'));
     assert(invite.search === '', 'invite must not put secrets in query parameters');
     const parsed = parseInviteFragment(invite.hash, { clear: false });

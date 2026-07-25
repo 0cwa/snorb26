@@ -129,3 +129,12 @@ dialog .row label.radio {
   padding: 0;
   font-size: 80%;
 }
+
+/* Multiplayer MVP controls are isolated from the map and remain local. */
+#multiplayerButton { position: fixed; right: 12px; top: 12px; z-index: 50; }
+#roomDialog { max-width: 34rem; }
+.room-panel { display: grid; gap: 0.75rem; }
+.room-panel label { display: grid; gap: 0.25rem; }
+.room-panel input[type="url"] { width: min(28rem, 75vw); }
+.room-controls { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+#roomStatus[data-error="true"] { color: #a00; }

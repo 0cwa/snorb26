@@ -50,7 +50,7 @@ snorb.tools.placeLemmingAt(cx, cy);
 
 ## Multiplayer architecture
 
-The multiplayer MVP is being introduced in phases. The current authority and state boundaries are documented in [MULTIPLAYER.md](MULTIPLAYER.md). Networking and shared editing are not enabled yet.
+The multiplayer MVP is documented in [MULTIPLAYER.md](MULTIPLAYER.md). Use the **Room** button to host the current map or open an invite URL and join. Rooms use binary WebRTC DataChannels with WebTorrent-compatible WSS trackers for signaling; tracker availability and NAT traversal without TURN are not guaranteed.
 
 ## Testing
 
