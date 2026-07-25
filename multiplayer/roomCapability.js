@@ -34,6 +34,11 @@ export function encodeInvite(capability, baseUrl = location.href) {
     hostKey: base64url(capability.hostPublicKey || (() => { throw new Error('Host identity is not initialized'); })()),
   });
   for (const tracker of capability.trackerUrls || []) params.append('tracker', tracker);
+  if (capability.turnConfig) {
+    for (const turnUrl of capability.turnConfig.turnUrls || []) params.append('turn', turnUrl);
+    params.set('turnUser', capability.turnConfig.username);
+    params.set('turnCredential', capability.turnConfig.credential);
+  }
   url.hash = params.toString();
   return url.href;
 }
@@ -49,6 +54,13 @@ export function parseInviteFragment(hash = location.hash, { clear = true } = {})
     hostPublicKey: unbase64url(params.get('hostKey'), 65),
     hostPrivateKey: null,
     trackerUrls: params.getAll('tracker').slice(0, 4),
+    turnConfig: params.has('turn')
+      ? {
+          turnUrls: params.getAll('turn').slice(0, 4),
+          username: params.get('turnUser') || '',
+          credential: params.get('turnCredential') || '',
+        }
+      : null,
   };
   if (clear && globalThis.history) history.replaceState(null, '', `${location.pathname}${location.search}`);
   return capability;

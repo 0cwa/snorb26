@@ -111,10 +111,10 @@ export function createRtcConfig({ turnUrls = [], username = '', credential = '' 
 }
 
 export async function testTurnConfiguration(rtcConfig, { timeoutMs = 10_000 } = {}) {
-  pc.createDataChannel('snorb-turn-probe');
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 30_000) throw new RangeError('TURN test timeout must be between 1 and 30 seconds');
   if (!Array.isArray(rtcConfig?.iceServers) || rtcConfig.iceServers.length < 2) throw new Error('Configure at least one TURN server before testing');
   const pc = new RTCPeerConnection(rtcConfig);
+  pc.createDataChannel('snorb-turn-probe');
   let relayCandidate = false;
   let candidateError = null;
   try {

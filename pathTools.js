@@ -52,32 +52,7 @@ export function distToSegmentSq(p, v, w) {
 
 // Helper to determine if a newly proposed segment intersects or gets too close to an existing segment
 function isSegmentColliding(pA, pB, extA, excludeExt) {
-    return false; // Disable collision detection
-    const altA = extA.altitude || 0;
-    const hA = extA.height;
-    const samples = Math.max(2, Math.ceil(Math.sqrt(distSq(pA, pB)) * 2));
-
-    for (const extB of extrusions) {
-        if (extB === excludeExt) continue;
-
-        const altB = extB.altitude || 0;
-        const hB = extB.height;
-        // Z Overlap check. If they don't overlap vertically, they don't collide.
-        if (Math.max(altA, altB) >= Math.min(altA + hA, altB + hB)) {
-            continue;
-        }
-
-        const minDistSq = Math.pow((extA.width + extB.width) / 2 + 0.5, 2);
-        for (let j = 0; j < extB.points.length - 1; j++) {
-            for (let i = 0; i <= samples; i++) {
-                const t = i / samples;
-                const pt = { x: pA.x + t * (pB.x - pA.x), y: pA.y + t * (pB.y - pA.y) };
-                if (distToSegmentSq(pt, extB.points[j], extB.points[j+1]) < minDistSq) {
-                    return true;
-                }
-            }
-        }
-    }
+    // Path overlap is intentionally allowed.
     return false;
 }
 

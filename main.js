@@ -15,6 +15,7 @@ import {
 } from './state.js';
 import {
   initWebGL,
+  getCanvasSizeLimit,
   canvas,
   requestPick,
   rebuildPickResources,
@@ -117,10 +118,14 @@ const friction = 0.92; // Controls how quickly the map stops sliding
 
 function resize() {
   const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+  const limit = getCanvasSizeLimit();
+  const desiredWidth = Math.max(1, Math.floor(window.innerWidth * dpr));
+  const desiredHeight = Math.max(1, Math.floor(window.innerHeight * dpr));
+  const scale = Math.min(1, limit.width / desiredWidth, limit.height / desiredHeight);
 
   // Set the internal resolution
-  canvas.width = Math.floor(window.innerWidth * dpr);
-  canvas.height = Math.floor(window.innerHeight * dpr);
+  canvas.width = Math.max(1, Math.floor(desiredWidth * scale));
+  canvas.height = Math.max(1, Math.floor(desiredHeight * scale));
 
   // Note: CSS size is handled by your "inset: 0" in style.css,
   // so we don't need to set canvas.style.width manually.

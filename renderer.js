@@ -59,10 +59,19 @@ export function assertTerrainTextureSize(width = GRID_W, height = GRID_H) {
 
 // Kept as a structured capability object for callers that need to display it.
 export function getRendererCapabilities() {
-  return { maxTextureSize: getTerrainTextureSizeLimit() };
+  return { maxTextureSize: getTerrainTextureSizeLimit(), maxCanvasSize: getCanvasSizeLimit() };
 }
 
 export const validateElevationTextureSize = assertTerrainTextureSize;
+
+export function getCanvasSizeLimit() {
+  if (!gl) throw new Error("WebGL has not been initialized");
+  const viewport = gl.getParameter(gl.MAX_VIEWPORT_DIMS);
+  return {
+    width: Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE), gl.getParameter(gl.MAX_RENDERBUFFER_SIZE), viewport[0]),
+    height: Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE), gl.getParameter(gl.MAX_RENDERBUFFER_SIZE), viewport[1]),
+  };
+}
 
 function uploadElevationTexture() {
   assertTerrainTextureSize();
@@ -544,7 +553,9 @@ export function rebuildPickResources() {
   gl.bindRenderbuffer(gl.RENDERBUFFER, pickState.depthRb);
   gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, canvas.width, canvas.height);
   gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, pickState.depthRb);
+  const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  if (status !== gl.FRAMEBUFFER_COMPLETE) throw new Error(`Picking framebuffer is incomplete (status 0x${status.toString(16)}).`);
 }
 
 export function draw(now) {

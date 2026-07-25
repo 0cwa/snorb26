@@ -137,13 +137,15 @@ dialog .row label.radio {
 .room-panel { display: grid; gap: 0.75rem; }
 .room-panel label { display: grid; gap: 0.25rem; }
 .room-panel input[type="url"], .room-panel textarea { width: min(28rem, 75vw); }
-.turn-settings { display: grid; gap: 0.6rem; }
+.turn-settings[open] { display: grid; gap: 0.6rem; }
+.turn-settings summary, .room-events summary { cursor: pointer; font-weight: bold; }
+.turn-verification { color: #777; }
+.turn-verification[data-verified="true"] { color: #087c26; }
 .turn-settings small { font-size: 0.8rem; }
 .room-controls { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 #roomStatus[data-error="true"] { color: #a00; }
 .room-note { margin: 0; font-size: 0.85rem; }
 .room-events { max-height: 9rem; overflow: auto; }
-.room-events h3 { margin: 0.4rem 0; font-size: 0.9rem; }
 .room-events ol { margin: 0; padding-left: 1.5rem; font-size: 0.8rem; }
 .room-events li[data-level="error"] { color: #a00; }
 .multiplayer-indicator { position: fixed; right: 0.75rem; bottom: 0.75rem; z-index: 4; }

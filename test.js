@@ -412,11 +412,18 @@ function runTests() {
   test('room secret stays in a round-trippable URL fragment', () => {
     const capability = createRoomCapability(['wss://tracker.example.test/announce']);
     capability.hostPublicKey = crypto.getRandomValues(new Uint8Array(65));
+    capability.turnConfig = {
+      turnUrls: ['turn:turn.example.test:3478?transport=udp'],
+      username: 'snorb',
+      credential: 'secret',
+    };
     const invite = new URL(encodeInvite(capability, 'https://snorb.example/app'));
     assert(invite.search === '', 'invite must not put secrets in query parameters');
     const parsed = parseInviteFragment(invite.hash, { clear: false });
     assert(parsed.secret.length === 32 && parsed.roomId.length === 16, 'capability should round-trip');
     assert(parsed.trackerUrls[0].startsWith('wss://'), 'tracker should round-trip');
+    assert(parsed.turnConfig.turnUrls[0].startsWith('turn:'), 'verified TURN URL should round-trip');
+    assert(parsed.turnConfig.username === 'snorb' && parsed.turnConfig.credential === 'secret', 'TURN credentials should stay in the invite fragment');
   });
 
   test('TURN configuration retains STUN and validates relay credentials', () => {
