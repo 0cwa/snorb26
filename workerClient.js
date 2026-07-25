@@ -20,19 +20,35 @@ import { saveMapToLocal } from './storage.js';
 import { isSimulationAuthority, mayRunLocalSimulation } from './authority.js';
 import { rebuildBuildingIdIndex } from './multiplayer/commandBus.js';
 
-export const worker = new Worker('lemmingWorker.js');
+export let worker = null;
 export let workerBusy = false;
+
+export function ensureWorker() {
+  if (!worker && isSimulationAuthority()) {
+    worker = new Worker('lemmingWorker.js');
+    worker.onmessage = handleWorkerMessage;
+  }
+  return worker;
+}
+
+export function stopWorker() {
+  worker?.terminate();
+  worker = null;
+  workerBusy = false;
+  currentSyncId++;
+}
+
 export function setWorkerBusy(value) { workerBusy = value }
 export let currentSyncId = 0;
 
 export function postTick(dtLemming) {
     if (mayRunLocalSimulation() && dtLemming > 0 && !workerBusy) {
         setWorkerBusy(true);
-        worker.postMessage({ type: 'tick', dt: dtLemming });
+        ensureWorker()?.postMessage({ type: 'tick', dt: dtLemming });
     }
 }
 
-worker.onmessage = (e) => {
+function handleWorkerMessage(e) {
   const msg = e.data;
   if (msg.type === 'tick_result') {
     workerBusy = false;
@@ -65,7 +81,7 @@ worker.onmessage = (e) => {
     console.info(msg);
     appState.eventNotifications && spawnEventEffect(msg);
   }
-};
+}
 
 function spawnEventEffect(msg) {
   // Convert the tile coordinates where it happened to screen space
@@ -141,7 +157,7 @@ function spawnEventEffect(msg) {
 export function syncWorkerState() {
   if (!isSimulationAuthority()) return;
   currentSyncId++;
-  worker.postMessage({
+  ensureWorker()?.postMessage({
     type: 'sync',
     syncId: currentSyncId,
     GRID_W, GRID_H,

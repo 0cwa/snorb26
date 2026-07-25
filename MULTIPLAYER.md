@@ -30,9 +30,14 @@ Current durable commands are `terrain.raise`, `terrain.smooth`, `terrain.level`,
 
 The command schema rejects unknown fields, including terrain/building arrays. Loro never contains camera/UI state, worker state, lemmings, simulation snapshots, or full map arrays. The binary Loro snapshot is persisted locally in IndexedDB to retain merge history; it is not remote map storage.
 
+## Host simulation snapshots
+
+Phase 3 adds full binary snapshots (`snapshotCodec.js`) with strict dimensions, entity counts, byte lengths, host epoch, sequence, and durable-command watermark validation. Terrain and building grids remain `Uint8Array` bytes and are never base64 encoded. `SnapshotPublisher` emits at 4 Hz by default (configurable up to 8 Hz); `SnapshotReceiver` rejects stale or wrong-epoch data before applying it. The in-memory loopback copies bytes to exercise the same host/guest boundary locally.
+
+Workers are created lazily. Guests do not create/run a worker or advance authoritative game time.
+
 ## Deferred phases
 
-3. Loopback host snapshots and guest rendering without guest simulation.
 4. Binary transport abstraction.
 5. WebRTC DataChannels and tracker-based signaling.
 6. Room UI, invite capability, validation, and safety limits.
