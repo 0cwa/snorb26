@@ -120,7 +120,7 @@ export function initWebGL(canvasEl) {
   editorProgram = linkProgram(shaders.vsEditor, shaders.fsEditor);
   lemmingProgram = linkProgram(shaders.vsLemming, shaders.fsLemming);
 
-  U = getUniforms(program, ["u_viewSize", "u_pan", "u_zoom", "u_tileW", "u_tileH", "u_elevStep", "u_gridW", "u_gridH", "u_rotation", "u_elevTex", "u_paletteTex", "u_selectedId", "u_hasSelection", "u_outlinePx", "u_levelActive", "u_levelMin", "u_levelMax", "u_alpha"]);
+  U = getUniforms(program, ["u_viewSize", "u_pan", "u_zoom", "u_tileW", "u_tileH", "u_elevStep", "u_gridW", "u_gridH", "u_rotation", "u_elevTex", "u_paletteTex", "u_selectedId", "u_hasSelection", "u_outlinePx", "u_levelActive", "u_levelMin", "u_levelMax", "u_showGrid", "u_alpha"]);
   WU = getUniforms(waterProgram, ["u_viewSize", "u_pan", "u_zoom", "u_tileW", "u_tileH", "u_elevStep", "u_gridW", "u_gridH", "u_rotation", "u_elevTex", "u_paletteTex", "u_waterLevel", "u_alpha", "u_time"]);
   BU = getUniforms(buildProgram, ["u_viewSize", "u_pan", "u_zoom", "u_tileW", "u_tileH", "u_elevStep", "u_gridW", "u_gridH", "u_rotation", "u_elevTex", "u_sheet", "u_spritePx", "u_sheetCols", "u_alpha"]);
   PU = getUniforms(pickProgram, ["u_viewSize", "u_pan", "u_zoom", "u_tileW", "u_tileH", "u_elevStep", "u_gridW", "u_gridH", "u_rotation", "u_elevTex"]);
@@ -577,7 +577,7 @@ export function draw(now) {
   }
   
   gl.uniform1f(U.outlinePx, 1.25);
-  gl.uniform1i(gl.getUniformLocation(program, "u_showGrid"), appState.showGrid ? 1 : 0);
+  gl.uniform1i(U.showGrid, appState.showGrid ? 1 : 0);
   gl.uniform1f(U.alpha, appState.showUnderground ? 0.3 : 1.0);
   if (appState.showUnderground) {
       gl.enable(gl.BLEND);
