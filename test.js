@@ -27,6 +27,7 @@ import {
 } from './authority.js';
 import { applySemanticCommand, applySemanticCommandsAtomically, validateSemanticCommand } from './multiplayer/semanticCommands.js';
 import { decodeSimulationSnapshot, encodeSimulationSnapshot } from './multiplayer/snapshotCodec.js';
+import { MessageKind, decodeFrame, encodeFrame } from './multiplayer/protocol.js';
 
 function assert(condition, message) {
   if (!condition) {
@@ -272,6 +273,15 @@ function runTests() {
     let rejected = false;
     try { decodeSimulationSnapshot(bytes.subarray(0, bytes.length - 1)); } catch { rejected = true; }
     assert(rejected, 'truncated snapshot must reject');
+  });
+
+  test('binary protocol frames reject truncation and preserve payloads', () => {
+    const frame = encodeFrame({ kind: MessageKind.LORO_UPDATE, roomId: 'room-test', hostEpoch: 2, sequence: 8, payload: Uint8Array.of(1, 2, 3) });
+    const decoded = decodeFrame(frame);
+    assert(decoded.roomId === 'room-test' && decoded.payload[2] === 3, 'frame should round-trip');
+    let rejected = false;
+    try { decodeFrame(frame.subarray(0, frame.length - 1)); } catch { rejected = true; }
+    assert(rejected, 'truncated frame should reject');
   });
 
   test('semantic batches reject atomically', () => {

@@ -36,9 +36,14 @@ Phase 3 adds full binary snapshots (`snapshotCodec.js`) with strict dimensions, 
 
 Workers are created lazily. Guests do not create/run a worker or advance authoritative game time.
 
+## Transport and protocol seam
+
+Phase 4 defines `MultiplayerTransport` with reliable and transient binary channels, handler registration, backpressure reporting, and lifecycle methods. Session code can use the in-memory loopback pair or a later WebRTC adapter without knowing the concrete transport.
+
+Every message uses a validated binary `SNRB` frame carrying protocol version, kind, room ID, host epoch, sequence, and byte payload. Reliable command/Loro payloads and transient snapshots have separate limits. Text transport payloads are rejected.
+
 ## Deferred phases
 
-4. Binary transport abstraction.
 5. WebRTC DataChannels and tracker-based signaling.
 6. Room UI, invite capability, validation, and safety limits.
 
