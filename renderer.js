@@ -26,6 +26,7 @@ let vao, buildVao, buildInstanceBuf, extrudeVao, extrudeBuf, editorVao, editorBu
 let elevTex, paletteTex, buildingTex;
 let U, WU, BU, PU, SU, EU, EDU, LU;
 let buildInstanceCount = 0;
+let lemmingInstanceData = new Float32Array(0);
 export let extrudeVertCount = 0;
 export let cubeVertCount = 0;
 
@@ -734,21 +735,29 @@ export function draw(now) {
 
   // DRAW LEMMINGS
   if (lemmings.length > 0) {
-    const arr = new Float32Array(lemmings.length * 10);
+    const floatCount = lemmings.length * 10;
+    if (lemmingInstanceData.length < floatCount) {
+      let capacity = Math.max(10, lemmingInstanceData.length);
+      while (capacity < floatCount) capacity *= 2;
+      lemmingInstanceData = new Float32Array(capacity);
+      gl.bindBuffer(gl.ARRAY_BUFFER, lemmingBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, lemmingInstanceData.byteLength, gl.DYNAMIC_DRAW);
+    }
+
     for (let i = 0; i < lemmings.length; i++) {
-        arr[i*10+0] = lemmings[i].x; arr[i*10+1] = lemmings[i].y;
-        arr[i*10+2] = lemmings[i].a;
-        arr[i*10+3] = lemmings[i].c[0]; arr[i*10+4] = lemmings[i].c[1]; arr[i*10+5] = lemmings[i].c[2];
+        lemmingInstanceData[i*10+0] = lemmings[i].x; lemmingInstanceData[i*10+1] = lemmings[i].y;
+        lemmingInstanceData[i*10+2] = lemmings[i].a;
+        lemmingInstanceData[i*10+3] = lemmings[i].c[0]; lemmingInstanceData[i*10+4] = lemmings[i].c[1]; lemmingInstanceData[i*10+5] = lemmings[i].c[2];
 
         // Size scales from 0.6 to 1.8 over 30 seconds
         let size = lemmings[i].grownUp ? 1.8 : 0.6 + ((lemmings[i].age || 0) / 30.0) * 1.2;
-        arr[i*10+6] = size;
-        arr[i*10+7] = lemmings[i].isDancing ? 1.0 : 0.0;
-        arr[i*10+8] = lemmings[i].glistenTimer || 0.0;
-        arr[i*10+9] = lemmings[i].age || 0.0;
+        lemmingInstanceData[i*10+6] = size;
+        lemmingInstanceData[i*10+7] = lemmings[i].isDancing ? 1.0 : 0.0;
+        lemmingInstanceData[i*10+8] = lemmings[i].glistenTimer || 0.0;
+        lemmingInstanceData[i*10+9] = lemmings[i].age || 0.0;
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, lemmingBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, arr, gl.DYNAMIC_DRAW);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, lemmingInstanceData.subarray(0, floatCount));
 
     gl.useProgram(lemmingProgram);
     gl.bindVertexArray(lemmingVao);
