@@ -14,6 +14,15 @@ import { applyRuntimeAction, setGuestRuntimeActionHandler } from './runtimeActio
 
 const MAX_PEERS = 8;
 const encoder = new TextEncoder();
+const MAX_RECENT_EVENTS = 40;
+const MAX_EVENT_MESSAGE_LENGTH = 320;
+export const ConnectionPhase = Object.freeze({
+  SINGLE_PLAYER: 'single-player',
+  HOSTING: 'hosting',
+  JOINING: 'joining',
+  CONNECTED: 'connected',
+  RECONNECT_NEEDED: 'reconnect-needed',
+});
 const toHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 
 function authMessage(roomId, role, challenge) { return encoder.encode(`snorb-auth-v1\0${roomId}\0${role}\0${challenge}`); }
@@ -43,17 +52,72 @@ class RoomSession extends EventTarget {
     this.hostEpoch = 0; this.sequence = 0; this.peers = new Set(); this.signaling = null;
     this.publisher = null; this.receiver = new SnapshotReceiver(snapshot => { applySimulationSnapshot(snapshot); rebuildBuildingIdIndex(); refreshWorld(); });
     this.localBackup = null; this.unsubscribeCommands = null; this.loroBroadcastTimer = null;
-    this.allowGuestEdits = true; this.phase = 'single-player'; this.generation = 0;
+    this.allowGuestEdits = true; this.phase = ConnectionPhase.SINGLE_PLAYER; this.generation = 0;
+    // Invite capabilities are deliberately memory-only. Keeping this separate from
+    // the active room lets a guest reconnect after a transport failure without
+    // putting the room secret back into the address bar or browser history.
+    this.loadedInvite = null; this.recentEvents = [];
   }
-  #status(detail) { this.dispatchEvent(new CustomEvent('status', { detail: { role: this.role, phase: this.phase, peers: this.peers.size, allowGuestEdits: this.allowGuestEdits, ...detail } })); }
+  getConnectionState() {
+    return Object.freeze({
+      role: this.role,
+      phase: this.phase,
+      peers: this.peers.size,
+      allowGuestEdits: this.allowGuestEdits,
+      inviteLoaded: Boolean(this.loadedInvite),
+      reconnectAvailable: Boolean(this.loadedInvite) && this.role !== AuthorityRole.HOST,
+    });
+  }
+  getRecentEvents() { return this.recentEvents.slice(); }
+  loadInvite(capability) {
+    if (!capability?.roomId || !capability?.secret || !capability?.hostPeerId || !capability?.hostPublicKey) throw new Error('Invalid room invite');
+    this.loadedInvite = capability;
+    this.#status({ message: 'Invite loaded: ready to join', event: { level: 'info', code: 'invite-loaded' } });
+    return this.getConnectionState();
+  }
+  clearLoadedInvite() {
+    this.loadedInvite = null;
+    this.#status({ message: 'Invite cleared', event: { level: 'info', code: 'invite-cleared' } });
+  }
+  async reconnect({ rtcConfig } = {}) {
+    if (!this.loadedInvite) {
+      const error = new Error('No invite is loaded; paste or open an invite link first');
+      this.#status({ message: error.message, error: true, event: { level: 'error', code: 'reconnect-unavailable' } });
+      throw error;
+    }
+    return this.join(this.loadedInvite, { rtcConfig });
+  }
+  #recordEvent(message, { level = 'info', code = 'status' } = {}) {
+    const event = Object.freeze({ timestamp: Date.now(), level, code, message: String(message || '').slice(0, MAX_EVENT_MESSAGE_LENGTH) });
+    this.recentEvents.push(event);
+    if (this.recentEvents.length > MAX_RECENT_EVENTS) this.recentEvents.splice(0, this.recentEvents.length - MAX_RECENT_EVENTS);
+    this.dispatchEvent(new CustomEvent('event', { detail: event }));
+  }
+  #recordDiagnostic(diagnostic) {
+    const state = diagnostic.state ? `: ${diagnostic.state}` : '';
+    const message = diagnostic.type === 'ice-candidate-error'
+      ? `ICE candidate error ${diagnostic.code || ''}: ${diagnostic.message}`
+      : diagnostic.type === 'ice-failure-stats'
+        ? `ICE candidate pair: ${diagnostic.selectedCandidatePair?.state || 'unavailable'}`
+        : `ICE ${diagnostic.type}${state}`;
+    this.#recordEvent(message, {
+      level: diagnostic.type.includes('error') || diagnostic.type.includes('failure') ? 'error' : 'info',
+      code: diagnostic.type,
+    });
+  }
+  #status(detail = {}) {
+    const { event, message, error, ...rest } = detail;
+    if (message) this.#recordEvent(message, event || { level: error ? 'error' : 'info' });
+    this.dispatchEvent(new CustomEvent('status', { detail: { ...this.getConnectionState(), message, error: Boolean(error), ...rest } }));
+  }
   async host(capability, { rtcConfig } = {}) {
     await this.leave(); const generation = ++this.generation; this.capability = capability; this.roomId = roomIdString(capability);
     this.hostEpoch = crypto.getRandomValues(new Uint32Array(1))[0] || 1;
     encodeSimulationSnapshot(captureSimulationSnapshot({ hostEpoch: this.hostEpoch, sequence: 1 }));
-    this.role = AuthorityRole.HOST; this.phase = 'hosting'; setAuthorityRole(this.role);
+    this.role = AuthorityRole.HOST; this.phase = ConnectionPhase.HOSTING; setAuthorityRole(this.role);
     try {
-      this.signaling = await hostWebRtcRoom(capability, { rtcConfig, onTransport: transport => generation === this.generation ? this.#attach(transport, true) : transport.close('stale-session'), onWarning: message => this.#status({ message, error: true }) });
-    } catch (error) { await this.leave(); throw error; }
+      this.signaling = await hostWebRtcRoom(capability, { rtcConfig, onTransport: transport => generation === this.generation ? this.#attach(transport, true) : transport.close('stale-session'), onWarning: message => this.#status({ message, error: true }), onDiagnostic: diagnostic => this.#recordDiagnostic(diagnostic) });
+    } catch (error) { this.#status({ message: `Hosting failed: ${error.message}`, error: true, event: { level: 'error', code: 'host-failed' } }); await this.leave(); throw error; }
     this.publisher = new SnapshotPublisher(bytes => {
       const frame = encodeFrame({ kind: MessageKind.SIM_SNAPSHOT, roomId: this.roomId, hostEpoch: this.hostEpoch, sequence: ++this.sequence, payload: bytes });
       for (const peer of this.peers) if (peer.authenticated) peer.transport.sendTransient(frame);
@@ -63,14 +127,15 @@ class RoomSession extends EventTarget {
     this.#status({ message: 'Hosting room' });
   }
   async join(capability, { rtcConfig } = {}) {
+    this.loadInvite(capability);
     await this.leave(); const generation = ++this.generation; this.localBackup = { map: serializeMap(), gameTime: appState.gameTime }; this.capability = capability; this.roomId = roomIdString(capability);
-    this.role = AuthorityRole.GUEST; this.phase = 'joining'; setAuthorityRole(this.role); stopWorker();
+    this.role = AuthorityRole.GUEST; this.phase = ConnectionPhase.JOINING; setAuthorityRole(this.role); stopWorker();
     this.receiver = new SnapshotReceiver(snapshot => { applySimulationSnapshot(snapshot); rebuildBuildingIdIndex(); refreshWorld(); });
     setGuestRequestHandler(request => this.#sendCommandRequest(request));
     setGuestRuntimeActionHandler(request => this.#sendCommandRequest(request));
     try {
-      this.signaling = await joinWebRtcRoom(capability, { rtcConfig, onTransport: transport => generation === this.generation ? this.#attach(transport, false) : transport.close('stale-session'), onWarning: message => this.#status({ message, error: true }) });
-    } catch (error) { await this.leave(); throw error; }
+      this.signaling = await joinWebRtcRoom(capability, { rtcConfig, onTransport: transport => generation === this.generation ? this.#attach(transport, false) : transport.close('stale-session'), onWarning: message => this.#status({ message, error: true }), onDiagnostic: diagnostic => this.#recordDiagnostic(diagnostic) });
+    } catch (error) { await this.leave(); this.phase = ConnectionPhase.RECONNECT_NEEDED; this.#status({ message: `Join failed: ${error.message}`, error: true, event: { level: 'error', code: 'join-failed' } }); throw error; }
     this.#status({ message: 'Joining room…' });
   }
   async #attach(transport, hosting) {
@@ -88,10 +153,17 @@ class RoomSession extends EventTarget {
       },
       onReliableMessage: bytes => this.#message(peer, bytes, false).catch(error => { this.#status({ message: error.message, error: true }); transport.close('protocol-error'); }),
       onTransientMessage: bytes => this.#message(peer, bytes, true).catch(error => { this.#status({ message: error.message, error: true }); transport.close('protocol-error'); }),
-      onClose: reason => { clearTimeout(peer.authTimer); this.peers.delete(peer); this.#status({ message: `Peer left: ${reason}` }); if (this.role === AuthorityRole.GUEST) this.leave(); },
+      onClose: reason => { clearTimeout(peer.authTimer); this.peers.delete(peer); if (this.role === AuthorityRole.GUEST) void this.#leaveGuestForReconnect(reason); else this.#status({ message: `Peer left: ${reason}`, event: { level: 'warning', code: 'peer-disconnected' } }); },
       onError: error => this.#status({ message: error.message, error: true }),
     });
     await transport.open();
+  }
+  async #leaveGuestForReconnect(reason) {
+    this.#status({ message: `Host disconnected: ${reason}`, error: true, event: { level: 'error', code: 'host-disconnected' } });
+    await this.leave();
+    if (!this.loadedInvite) return;
+    this.phase = ConnectionPhase.RECONNECT_NEEDED;
+    this.#status({ message: 'Reconnect needed. Your invite is still loaded.', error: true, event: { level: 'warning', code: 'reconnect-needed' } });
   }
   async #message(peer, bytes, transient) {
     const frame = decodeFrame(bytes);
@@ -119,7 +191,7 @@ class RoomSession extends EventTarget {
         await initializeLoroCommandLog(hello.mapId);
       }
       if (this.role === AuthorityRole.HOST) await this.#sendBaseline(peer);
-      this.phase = 'connected';
+      this.phase = ConnectionPhase.CONNECTED;
       this.#status({ message: 'Peer authenticated' });
       return;
     }
@@ -205,7 +277,7 @@ class RoomSession extends EventTarget {
     this.signaling?.close(); this.signaling = null;
     for (const peer of this.peers) peer.transport.close('room-left'); this.peers.clear();
     const restore = this.role === AuthorityRole.GUEST ? this.localBackup : null;
-    this.role = AuthorityRole.SINGLE_PLAYER; this.phase = 'single-player'; setAuthorityRole(this.role); this.capability = null; this.roomId = ''; this.hostEpoch = 0;
+    this.role = AuthorityRole.SINGLE_PLAYER; this.phase = ConnectionPhase.SINGLE_PLAYER; setAuthorityRole(this.role); this.capability = null; this.roomId = ''; this.hostEpoch = 0;
     if (restore) { deserializeMap(restore.map); appState.gameTime = restore.gameTime; await initializeCommandBus(); refreshWorld(); syncWorkerState(); }
     this.localBackup = null; this.#status({ message: 'Single-player' });
   }

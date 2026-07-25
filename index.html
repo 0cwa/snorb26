@@ -79,7 +79,7 @@
           <button data-command="toggle-dance-smoothing">Dance Smoothing</button>
           <button data-command="toggle-lemming-swimming">No fear of the sea</button>
           <div class="hr"></div>
-          <button type="button" data-command="open-multiplayer" aria-haspopup="dialog">Multiplayer...</button>
+          <button type="button" id="openMultiplayerBtn" data-command="open-multiplayer" aria-haspopup="dialog">Multiplayer…</button>
           <div class="hr"></div>
           <label class="ctl">Love Chance <input id="setLoveChance" type="range" min="0" max="1" step="0.01" value="0.3"></label>
           <label class="ctl">Age Gap Penalty <input id="setAgeGapPenalty" type="range" min="0" max="0.1" step="0.005" value="0.01"></label>
@@ -252,6 +252,15 @@
     <div class="content room-panel">
       <h2>Multiplayer Room</h2>
       <p id="roomStatus">Single-player</p>
+      <p id="roomInviteState" class="room-note">No invite loaded.</p>
+      <label>Paste invite link
+        <textarea id="roomInviteInput" rows="2" maxlength="8192" placeholder="Paste a Snorb invite link here"></textarea>
+      </label>
+      <div class="controls room-controls">
+        <button type="button" class="button" id="loadInviteBtn">Load invite</button>
+        <button type="button" class="button" id="reconnectRoomBtn" disabled>Reconnect</button>
+      </div>
+      <small class="room-note">Invite links are kept only in memory. Reloading this page requires pasting or opening the invite again. Closing this dialog keeps an active room connected.</small>
       <label>WebTorrent WSS tracker
         <input id="roomTracker" type="url" value="wss://tracker.webtorrent.dev" maxlength="2048">
       </label>
@@ -267,17 +276,20 @@
           <input id="roomTurnCredential" type="password" autocomplete="current-password" maxlength="512">
         </label>
         <small>Used only in this browser session; TURN settings are not included in room invites.</small>
+        <button type="button" class="button" id="testTurnBtn">Test TURN configuration</button>
+        <small id="turnTestResult" class="room-note"></small>
       </fieldset>
       <label><input id="allowGuestEdits" type="checkbox" checked> Allow guest edits</label>
       <div class="controls room-controls">
         <button type="button" class="button" id="hostRoomBtn">Host current map</button>
-        <button type="button" class="button" id="joinRoomBtn">Join invite</button>
+        <button type="button" class="button" id="joinRoomBtn" disabled>Join invite</button>
         <button type="button" class="button" id="copyInviteBtn" disabled>Copy invite</button>
         <button type="button" class="button" id="leaveRoomBtn">Leave room</button>
         <button type="button" class="button" id="closeRoomBtn">Close</button>
       </div>
     </div>
   </dialog>
+  <button type="button" id="multiplayerIndicator" class="multiplayer-indicator" aria-haspopup="dialog" aria-label="Open multiplayer room">Multiplayer: Single-player</button>
   <script type="module" src="main.js"></script>
 </body>
 </html>

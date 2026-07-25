@@ -141,3 +141,9 @@ dialog .row label.radio {
 .turn-settings small { font-size: 0.8rem; }
 .room-controls { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 #roomStatus[data-error="true"] { color: #a00; }
+.room-note { margin: 0; font-size: 0.85rem; }
+.room-events { max-height: 9rem; overflow: auto; }
+.room-events h3 { margin: 0.4rem 0; font-size: 0.9rem; }
+.room-events ol { margin: 0; padding-left: 1.5rem; font-size: 0.8rem; }
+.room-events li[data-level="error"] { color: #a00; }
+.multiplayer-indicator { position: fixed; right: 0.75rem; bottom: 0.75rem; z-index: 4; }

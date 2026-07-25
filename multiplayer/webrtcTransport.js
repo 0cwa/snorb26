@@ -92,8 +92,9 @@ export class WebRtcTransport extends MultiplayerTransport {
   }
 }
 
-export async function createGuestWebRtcOffer(rtcConfig = {}) {
+export async function createGuestWebRtcOffer(rtcConfig = {}, { onPeerConnection } = {}) {
   const pc = new RTCPeerConnection(rtcConfig), transport = new WebRtcTransport(pc);
+  onPeerConnection?.(pc);
   transport.attachCreatedChannels();
   await pc.setLocalDescription(await pc.createOffer()); await waitIceComplete(pc);
   return { transport, offer: pc.localDescription };
@@ -104,9 +105,10 @@ export async function applyGuestWebRtcAnswer(transport, answer) {
   await transport.pc.setRemoteDescription(answer);
 }
 
-export async function acceptHostWebRtcOffer(offer, rtcConfig = {}) {
+export async function acceptHostWebRtcOffer(offer, rtcConfig = {}, { onPeerConnection } = {}) {
   if (offer?.type !== 'offer' || typeof offer.sdp !== 'string') throw new TypeError('Invalid WebRTC offer');
   const pc = new RTCPeerConnection(rtcConfig), transport = new WebRtcTransport(pc);
+  onPeerConnection?.(pc);
   await pc.setRemoteDescription(offer); await pc.setLocalDescription(await pc.createAnswer()); await waitIceComplete(pc);
   return { transport, answer: pc.localDescription };
 }

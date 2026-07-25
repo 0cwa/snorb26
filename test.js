@@ -30,7 +30,7 @@ import { decodeSimulationSnapshot, encodeSimulationSnapshot } from './multiplaye
 import { MessageKind, decodeFrame, encodeFrame } from './multiplayer/protocol.js';
 import { createRoomCapability, encodeInvite, parseInviteFragment } from './multiplayer/roomCapability.js';
 import { MultiplayerTransport } from './multiplayer/transport.js';
-import { createRtcConfig } from './multiplayer/webrtcRoom.js';
+import { createRtcConfig, observeIceDiagnostics, summarizeIceStats } from './multiplayer/webrtcRoom.js';
 import { setGuestRuntimeActionHandler, submitRuntimeAction, validateRuntimeAction } from './multiplayer/runtimeActions.js';
 import { getVisibleTileRect } from './terrainCulling.js';
 import { validateTerrainTextureSize } from './mapSizeValidation.js';
@@ -431,6 +431,31 @@ function runTests() {
   });
 
   test('runtime actions are strictly validated and guests submit without mutation', () => {
+
+  test('TURN configuration and ICE diagnostics are bounded and sanitized', () => {
+    let rejected = false;
+    try { createRtcConfig({ turnUrls: ['turn:/'], username: 'snorb', credential: 'secret' }); } catch { rejected = true; }
+    assert(rejected, 'malformed TURN URLs must reject');
+    rejected = false;
+    try { createRtcConfig({ turnUrls: Array(5).fill('turn:turn.example.test'), username: 'snorb', credential: 'secret' }); } catch { rejected = true; }
+    assert(rejected, 'TURN URL count must be capped');
+    const stats = new Map([
+      ['pair', { id: 'pair', type: 'candidate-pair', selected: true, state: 'succeeded', localCandidateId: 'local-secret', remoteCandidateId: 'remote-secret' }],
+      ['local-secret', { id: 'local-secret', type: 'local-candidate', candidateType: 'relay', protocol: 'tcp', relayProtocol: 'tls', address: '192.0.2.1', port: 1234 }],
+      ['remote-secret', { id: 'remote-secret', type: 'remote-candidate', candidateType: 'srflx', protocol: 'udp', address: '198.51.100.1', port: 5678 }],
+    ]);
+    const summary = summarizeIceStats(stats);
+    assert(summary.local.type === 'relay' && summary.local.relayProtocol === 'tls', 'candidate summary should retain transport type only');
+    assert(!JSON.stringify(summary).includes('192.0.2.1') && !JSON.stringify(summary).includes('local-secret'), 'candidate summary must omit addresses and IDs');
+    const handlers = new Map();
+    const fakePc = { iceGatheringState: 'gathering', iceConnectionState: 'checking', connectionState: 'connecting', addEventListener: (name, handler) => handlers.set(name, handler), removeEventListener: name => handlers.delete(name) };
+    const events = [];
+    const stop = observeIceDiagnostics(fakePc, event => events.push(event));
+    handlers.get('icecandidateerror')({ errorCode: 701, errorText: 'bad\nturn response' });
+    assert(events.some(event => event.type === 'ice-gathering-state' && event.state === 'gathering'), 'initial ICE state should be reported');
+    assert(events.at(-1).type === 'ice-candidate-error' && events.at(-1).message === 'bad turn response', 'candidate errors should be sanitized');
+    stop();
+  });
     const accepted = validateRuntimeAction({ type: 'simulation.setSpeed', gameSpeed: 2 });
     assert(accepted.gameSpeed === 2, 'valid game speed should normalize');
     let rejected = false;
