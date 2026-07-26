@@ -5,7 +5,13 @@
   "description": "sculpt your way",
   "main": "main.js",
   "scripts": {
-    "test": "node test.js"
+    "test": "node test.js",
+    "test:browser:install": "PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers playwright install chromium firefox",
+    "test:browser": "PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers playwright test --config=tests/playwright.config.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.0",
+    "ws": "8.21.1"
   },
   "repository": {
     "type": "git",
