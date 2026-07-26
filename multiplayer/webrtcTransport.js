@@ -22,7 +22,7 @@ export class WebRtcTransport extends MultiplayerTransport {
     this.assemblies = new Map(); this.expiredAssemblies = new Map();
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'failed') this._error(new Error('WebRTC connection failed'));
-      if (['closed', 'failed', 'disconnected'].includes(pc.connectionState)) this.close(pc.connectionState);
+      if (['closed', 'failed'].includes(pc.connectionState)) this.close(pc.connectionState);
     };
     pc.ondatachannel = event => this.#bindChannel(event.channel);
   }
@@ -66,6 +66,7 @@ export class WebRtcTransport extends MultiplayerTransport {
         total,
         chunks: new Array(count),
         received: 0,
+        receivedChunks: 0,
         timer: setTimeout(() => {
           this.assemblies.delete(key);
           const staleTimer = setTimeout(() => this.expiredAssemblies.delete(key), 5000);
@@ -75,8 +76,8 @@ export class WebRtcTransport extends MultiplayerTransport {
       this.assemblies.set(key, assembly);
     }
     if (assembly.count !== count || assembly.total !== total || assembly.chunks[index]) return;
-    assembly.chunks[index] = bytes.slice(CHUNK_HEADER); assembly.received += size;
-    if (assembly.chunks.every(Boolean)) {
+    assembly.chunks[index] = bytes.slice(CHUNK_HEADER); assembly.received += size; assembly.receivedChunks++;
+    if (assembly.receivedChunks === assembly.count) {
       clearTimeout(assembly.timer); this.assemblies.delete(key);
       const staleTimer = setTimeout(() => this.expiredAssemblies.delete(key), 5000);
       this.expiredAssemblies.set(key, staleTimer);

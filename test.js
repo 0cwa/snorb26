@@ -31,6 +31,7 @@ import { MessageKind, decodeFrame, encodeFrame } from './multiplayer/protocol.js
 import { createRoomCapability, encodeInvite, parseInviteFragment } from './multiplayer/roomCapability.js';
 import { MultiplayerTransport } from './multiplayer/transport.js';
 import { createRtcConfig, observeIceDiagnostics, summarizeIceStats } from './multiplayer/webrtcRoom.js';
+import { WebRtcTransport } from './multiplayer/webrtcTransport.js';
 import { setGuestRuntimeActionHandler, submitRuntimeAction, validateRuntimeAction } from './multiplayer/runtimeActions.js';
 import { getVisibleTileRect } from './terrainCulling.js';
 import { validateTerrainTextureSize } from './mapSizeValidation.js';
@@ -525,6 +526,73 @@ function runTests() {
     } });
     transport._open(info);
     assert(calls === 1, 'late handler should receive exactly one readiness notification');
+  });
+
+  test('keeps WebRTC transport alive through a transient disconnected state', () => {
+    const fakePeerConnection = () => ({
+      connectionState: 'connecting',
+      closeCalls: 0,
+      close() { this.closeCalls++; },
+    });
+    const pc = fakePeerConnection();
+    const transport = new WebRtcTransport(pc);
+
+    pc.connectionState = 'disconnected';
+    pc.onconnectionstatechange();
+    assert(!transport.closed, 'disconnected must remain recoverable');
+    assert(pc.closeCalls === 0, 'disconnected must not close the peer connection');
+
+    pc.connectionState = 'failed';
+    pc.onconnectionstatechange();
+    assert(transport.closed, 'failed must close the transport');
+    assert(pc.closeCalls === 1, 'failed must close the peer connection once');
+
+    const closedPc = fakePeerConnection();
+    const closedTransport = new WebRtcTransport(closedPc);
+    closedPc.connectionState = 'closed';
+    closedPc.onconnectionstatechange();
+    assert(closedTransport.closed, 'closed must close the transport');
+    assert(closedPc.closeCalls === 1, 'closed must close the peer connection once');
+  });
+
+  test('reassembles out-of-order fragmented WebRTC messages exactly once', () => {
+    const sentChunks = [];
+    const senderPc = {
+      connectionState: 'connecting',
+      createDataChannel(label) {
+        return {
+          label,
+          readyState: 'open',
+          bufferedAmount: 0,
+          send(bytes) { if (label === 'snorb-reliable') sentChunks.push(bytes.slice()); },
+          close() {},
+        };
+      },
+      close() {},
+    };
+    const sender = new WebRtcTransport(senderPc);
+    sender.attachCreatedChannels();
+    const payload = Uint8Array.from({ length: 40 * 1024 + 17 }, (_, index) => index % 251);
+    assert(sender.sendReliable(payload), 'fragmented payload should send');
+    assert(sentChunks.length === 3, 'payload should be split into three chunks');
+
+    const receiverPc = { connectionState: 'connecting', close() {} };
+    const receiver = new WebRtcTransport(receiverPc);
+    const receiverChannel = { label: 'snorb-reliable', readyState: 'open', close() {} };
+    receiverPc.ondatachannel({ channel: receiverChannel });
+    const received = [];
+    receiver.setHandlers({ onReliableMessage: bytes => received.push(bytes) });
+    const deliver = chunk => receiverChannel.onmessage({
+      data: chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength),
+    });
+    for (const chunk of [...sentChunks].reverse()) deliver(chunk);
+    for (const chunk of sentChunks) deliver(chunk);
+
+    assert(received.length === 1, 'complete payload should be delivered exactly once');
+    assert(received[0].length === payload.length, 'reassembled payload length should match');
+    assert(payload.every((value, index) => received[0][index] === value), 'reassembled bytes should match');
+    sender.close();
+    receiver.close();
   });
 
   test('semantic batches reject atomically', () => {

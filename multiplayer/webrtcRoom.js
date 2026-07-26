@@ -220,12 +220,7 @@ export async function joinWebRtcRoom(capability, { onTransport, onWarning, onDia
   let transport = null;
   let timedOut = false;
   let connected = false;
-  const timeout = setTimeout(() => {
-    timedOut = true;
-    onWarning?.('Timed out waiting for a WebRTC room answer');
-    tracker?.close();
-    transport?.close('join-timeout');
-  }, JOIN_TIMEOUT_MS);
+  let timeout = null;
   const url = capability.trackerUrls?.[0];
   try {
     if (!url) throw new Error('A WSS tracker URL is required');
@@ -233,10 +228,6 @@ export async function joinWebRtcRoom(capability, { onTransport, onWarning, onDia
     const peerId = crypto.getRandomValues(new Uint8Array(20));
     const created = await createGuestWebRtcOffer(rtcConfig, { onPeerConnection: pc => observeIceDiagnostics(pc, onDiagnostic) });
     transport = created.transport;
-    if (timedOut) {
-      transport.close('join-timeout');
-      throw new Error('Timed out waiting for a WebRTC room answer');
-    }
     if (!created.iceGatheringComplete) onWarning?.('ICE gathering timed out; sending offer with gathered candidates');
     tracker = new WebTorrentTrackerClient({
       url, infoHash, peerId, onWarning,
@@ -253,6 +244,12 @@ export async function joinWebRtcRoom(capability, { onTransport, onWarning, onDia
         } catch (error) { onWarning?.(error.message); }
       },
     });
+    timeout = setTimeout(() => {
+      timedOut = true;
+      onWarning?.('Timed out waiting for a WebRTC room answer');
+      tracker?.close();
+      transport?.close('join-timeout');
+    }, JOIN_TIMEOUT_MS);
     tracker.connect();
     return {
       close: () => {
